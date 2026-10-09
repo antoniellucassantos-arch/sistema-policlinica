@@ -128,6 +128,7 @@
           <div class="demo-contas">
             <button type="button" class="chip" data-email="paciente@demo.com">Paciente</button>
             <button type="button" class="chip" data-email="ana.lima@demo.com">Médica</button>
+            <button type="button" class="chip" data-email="recepcao@demo.com">Recepção</button>
             <button type="button" class="chip" data-email="admin@demo.com">Administrador</button>
           </div>
         </div>
@@ -257,11 +258,13 @@
       <nav class="nav-links" id="nav-links"></nav>
 
       <div class="nav-usuario">
-        <span class="avatar avatar-sm" id="nav-avatar"></span>
-        <div class="nav-usuario-info">
-          <strong id="nav-nome"></strong>
-          <span id="nav-tipo"></span>
-        </div>
+        <a href="#conta" class="nav-usuario-link" title="Minha conta">
+          <span class="avatar avatar-sm" id="nav-avatar"></span>
+          <span class="nav-usuario-info">
+            <strong id="nav-nome"></strong>
+            <span id="nav-tipo"></span>
+          </span>
+        </a>
         <button class="btn-icone" id="btn-logout" title="Sair" aria-label="Sair">
           <svg class="ic"><use href="#i-logout"/></svg>
         </button>
@@ -299,8 +302,8 @@
           <div><strong id="stat-consultas">0</strong><span>Consultas agendadas</span></div>
         </div>
         <div class="stat-card">
-          <span class="stat-icone ambar"><svg class="ic"><use href="#i-clock"/></svg></span>
-          <div><strong>8h – 18h</strong><span>Horário de atendimento</span></div>
+          <span class="stat-icone ambar"><svg class="ic"><use href="#i-sparkle"/></svg></span>
+          <div><strong id="stat-especialidades">0</strong><span>Especialidades</span></div>
         </div>
       </div>
 
@@ -314,15 +317,34 @@
     <!-- ================= PACIENTE: AGENDAR ================= -->
     <section id="page-agendar" class="page">
       <div class="page-cabecalho">
-        <h1>Agendar consulta</h1>
-        <p>Escolha o profissional, a data e o horário que preferir.</p>
+        <h1 id="agendar-titulo">Agendar consulta</h1>
+        <p id="agendar-subtitulo">Escolha o profissional, a data e o horário que preferir.</p>
       </div>
 
       <div class="agendar-layout">
         <div class="agendar-passos">
+          <!-- Só para a recepção / administração -->
+          <div class="card passo hidden" id="passo-paciente">
+            <div class="passo-cabecalho">
+              <span class="passo-numero"></span>
+              <h3>Paciente</h3>
+            </div>
+            <div id="paciente-escolhido" class="hidden"></div>
+            <div id="paciente-busca">
+              <div class="campo-input busca">
+                <svg class="ic"><use href="#i-search"/></svg>
+                <input type="search" id="busca-paciente" placeholder="Buscar por nome, e-mail ou telefone" autocomplete="off"/>
+              </div>
+              <div id="pacientes-resultado" class="lista-pacientes"></div>
+              <button type="button" class="btn btn-secundario btn-sm" id="btn-novo-paciente">
+                <svg class="ic"><use href="#i-plus"/></svg> Cadastrar novo paciente
+              </button>
+            </div>
+          </div>
+
           <div class="card passo">
             <div class="passo-cabecalho">
-              <span class="passo-numero">1</span>
+              <span class="passo-numero"></span>
               <h3>Escolha o profissional</h3>
             </div>
             <div class="filtros">
@@ -337,7 +359,7 @@
 
           <div class="card passo">
             <div class="passo-cabecalho">
-              <span class="passo-numero">2</span>
+              <span class="passo-numero"></span>
               <h3>Escolha a data</h3>
             </div>
             <div class="calendario">
@@ -356,10 +378,29 @@
 
           <div class="card passo">
             <div class="passo-cabecalho">
-              <span class="passo-numero">3</span>
+              <span class="passo-numero"></span>
               <h3>Escolha o horário</h3>
             </div>
             <div id="horarios-container"></div>
+          </div>
+
+          <div class="card passo">
+            <div class="passo-cabecalho">
+              <span class="passo-numero"></span>
+              <h3>Detalhes da consulta</h3>
+            </div>
+            <div class="campo">
+              <label>Motivo</label>
+              <div class="chips" id="motivos"></div>
+            </div>
+            <div class="campo">
+              <label>Forma de pagamento</label>
+              <div id="pagamento-opcoes" class="pagamento-opcoes"></div>
+            </div>
+            <div class="campo">
+              <label for="observacao">Observação <span class="opcional">(opcional)</span></label>
+              <textarea id="observacao" rows="2" maxlength="500" placeholder="Algo que o profissional deva saber antes da consulta"></textarea>
+            </div>
           </div>
         </div>
 
@@ -367,7 +408,7 @@
           <h3>Resumo da consulta</h3>
           <div id="resumo-conteudo"></div>
           <button id="btn-agendar" class="btn btn-primary btn-full btn-lg" disabled>Confirmar agendamento</button>
-          <p class="muted pequeno centro">Você pode cancelar quando quiser em “Minhas consultas”.</p>
+          <p class="muted pequeno centro" id="resumo-rodape">Você pode remarcar ou cancelar em “Minhas consultas”.</p>
         </aside>
       </div>
     </section>
@@ -413,6 +454,10 @@
           <span class="stat-icone verde"><svg class="ic"><use href="#i-check"/></svg></span>
           <div><strong id="ag-stat-concluidas">0</strong><span>Consultas concluídas</span></div>
         </div>
+        <div class="stat-card">
+          <span class="stat-icone vermelho"><svg class="ic"><use href="#i-x"/></svg></span>
+          <div><strong id="ag-stat-faltas">0</strong><span>Faltas</span></div>
+        </div>
       </div>
 
       <div class="abas" id="abas-agenda">
@@ -427,8 +472,8 @@
     <!-- ================= PROFISSIONAL: PERFIL PÚBLICO ================= -->
     <section id="page-perfil-publico" class="page">
       <div class="page-cabecalho">
-        <h1>Perfil público</h1>
-        <p>É assim que os pacientes veem você na hora de agendar.</p>
+        <h1>Perfil e horários</h1>
+        <p>Seu perfil público, horário de atendimento, valores e convênios.</p>
       </div>
 
       <div class="perfil-layout">
@@ -466,9 +511,56 @@
             <label for="pp-formacao">Formação <span class="opcional">(uma por linha)</span></label>
             <textarea id="pp-formacao" rows="3" maxlength="2000" placeholder="Medicina — Universidade X&#10;Residência em ... — Hospital Y"></textarea>
           </div>
+
+          <h3 class="form-secao">Horário de atendimento</h3>
           <div class="campo">
             <label>Dias de atendimento</label>
             <div class="dias-semana" id="pp-dias"></div>
+          </div>
+          <div class="grade-3">
+            <div class="campo">
+              <label for="pp-hora-inicio">Início</label>
+              <div class="campo-input sem-icone"><input type="time" id="pp-hora-inicio" required step="300"/></div>
+            </div>
+            <div class="campo">
+              <label for="pp-hora-fim">Fim</label>
+              <div class="campo-input sem-icone"><input type="time" id="pp-hora-fim" required step="300"/></div>
+            </div>
+            <div class="campo">
+              <label for="pp-duracao">Duração da consulta</label>
+              <select id="pp-duracao" class="select"></select>
+            </div>
+          </div>
+          <div class="grade-3">
+            <div class="campo">
+              <label for="pp-pausa-inicio">Pausa (almoço) <span class="opcional">início</span></label>
+              <div class="campo-input sem-icone"><input type="time" id="pp-pausa-inicio" step="300"/></div>
+            </div>
+            <div class="campo">
+              <label for="pp-pausa-fim">Pausa <span class="opcional">fim</span></label>
+              <div class="campo-input sem-icone"><input type="time" id="pp-pausa-fim" step="300"/></div>
+            </div>
+            <div class="campo">
+              <label>Consultas por dia</label>
+              <p class="info-calculada" id="pp-qtd-horarios">—</p>
+            </div>
+          </div>
+          <p class="muted pequeno" id="pp-horarios-exemplo"></p>
+
+          <h3 class="form-secao">Valores e convênios</h3>
+          <div class="grade-2">
+            <div class="campo">
+              <label for="pp-valor">Valor da consulta particular <span class="opcional">(R$)</span></label>
+              <div class="campo-input sem-icone"><input type="number" id="pp-valor" min="0" step="0.01" placeholder="Ex.: 200,00"/></div>
+            </div>
+            <div class="campo">
+              <label>&nbsp;</label>
+              <label class="check"><input type="checkbox" id="pp-particular"/> <span>Atendo consultas particulares</span></label>
+            </div>
+          </div>
+          <div class="campo">
+            <label for="pp-convenios">Convênios aceitos <span class="opcional">(um por linha; deixe vazio se não atende convênio)</span></label>
+            <textarea id="pp-convenios" rows="3" maxlength="1500" placeholder="Unimed&#10;Bradesco Saúde"></textarea>
           </div>
           <div class="form-acoes">
             <button type="submit" class="btn btn-primary">Salvar perfil</button>
@@ -486,8 +578,8 @@
     <section id="page-admin" class="page">
       <div class="page-cabecalho com-acao">
         <div>
-          <h1>Profissionais</h1>
-          <p>Cadastre os profissionais da clínica e controle quem aparece para agendamento.</p>
+          <h1>Equipe</h1>
+          <p>Cadastre profissionais e recepção, e controle quem aparece para agendamento.</p>
         </div>
         <button class="btn btn-primary" id="btn-novo-prof"><svg class="ic"><use href="#i-plus"/></svg> Novo profissional</button>
       </div>
@@ -510,6 +602,122 @@
       <div class="card tabela-card">
         <div id="admin-prof-list"></div>
       </div>
+
+      <div class="secao-titulo">
+        <div>
+          <h2>Recepção</h2>
+          <p class="muted pequeno">Contas que podem ver a agenda geral, agendar por telefone e bloquear datas.</p>
+        </div>
+        <button class="btn btn-secundario" id="btn-nova-recepcao"><svg class="ic"><use href="#i-plus"/></svg> Nova conta</button>
+      </div>
+      <div class="card tabela-card">
+        <div id="admin-recepcao-list"></div>
+      </div>
+    </section>
+
+    <!-- ================= EQUIPE: AGENDA GERAL ================= -->
+    <section id="page-agenda-geral" class="page">
+      <div class="page-cabecalho com-acao">
+        <div>
+          <h1>Agenda da clínica</h1>
+          <p>Todas as consultas do dia, de todos os profissionais.</p>
+        </div>
+        <a href="#agendar" class="btn btn-primary"><svg class="ic"><use href="#i-plus"/></svg> Novo agendamento</a>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-icone"><svg class="ic"><use href="#i-clock"/></svg></span>
+          <div><strong id="eq-stat-hoje">0</strong><span>Consultas hoje</span></div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-icone azul"><svg class="ic"><use href="#i-calendar"/></svg></span>
+          <div><strong id="eq-stat-agendadas">0</strong><span>Consultas futuras</span></div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-icone ambar"><svg class="ic"><use href="#i-users"/></svg></span>
+          <div><strong id="eq-stat-pacientes">0</strong><span>Pacientes cadastrados</span></div>
+        </div>
+      </div>
+
+      <div class="barra-agenda card">
+        <div class="navega-dia">
+          <button class="btn-icone" id="ag-dia-anterior" aria-label="Dia anterior"><svg class="ic"><use href="#i-chevron-left"/></svg></button>
+          <input type="date" id="ag-dia" class="select"/>
+          <button class="btn-icone" id="ag-dia-seguinte" aria-label="Próximo dia"><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          <button class="btn btn-secundario btn-sm" id="ag-hoje">Hoje</button>
+        </div>
+        <select id="ag-filtro-prof" class="select"></select>
+      </div>
+      <h3 class="agenda-geral-titulo" id="ag-dia-titulo"></h3>
+      <div id="agenda-geral-list" class="agenda-lista"></div>
+    </section>
+
+    <!-- ================= PROFISSIONAL / EQUIPE: BLOQUEIOS ================= -->
+    <section id="page-bloqueios" class="page">
+      <div class="page-cabecalho">
+        <h1 id="bloq-titulo">Folgas e bloqueios</h1>
+        <p id="bloq-subtitulo">Feche a agenda em férias, congressos ou folgas. Os pacientes não conseguem marcar nesses dias.</p>
+      </div>
+
+      <div class="bloqueios-layout">
+        <form id="form-bloqueio" class="card form-card">
+          <h3>Novo bloqueio</h3>
+          <div class="campo hidden" id="bloq-campo-prof">
+            <label for="bloq-prof">Agenda de</label>
+            <select id="bloq-prof" class="select"></select>
+          </div>
+          <div class="grade-2">
+            <div class="campo">
+              <label for="bloq-inicio">De</label>
+              <div class="campo-input sem-icone"><input type="date" id="bloq-inicio" required/></div>
+            </div>
+            <div class="campo">
+              <label for="bloq-fim">Até <span class="opcional">(inclusive)</span></label>
+              <div class="campo-input sem-icone"><input type="date" id="bloq-fim"/></div>
+            </div>
+          </div>
+          <div class="campo">
+            <label for="bloq-motivo">Motivo <span class="opcional">(só a equipe vê)</span></label>
+            <div class="campo-input sem-icone"><input type="text" id="bloq-motivo" maxlength="120" placeholder="Ex.: Férias, Feriado, Congresso"/></div>
+          </div>
+          <div class="form-acoes">
+            <button type="submit" class="btn btn-primary">Bloquear datas</button>
+          </div>
+        </form>
+
+        <div>
+          <h3 class="lista-titulo">Próximos bloqueios</h3>
+          <div id="bloqueios-list" class="lista-bloqueios"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ADMIN: CONFIGURAÇÕES ================= -->
+    <section id="page-configuracoes" class="page">
+      <div class="page-cabecalho">
+        <h1>Configurações</h1>
+        <p>Regras de agendamento que valem para os pacientes no site.</p>
+      </div>
+      <form id="form-config" class="card form-card form-estreito">
+        <div class="campo">
+          <label for="cfg-limite">Máximo de consultas futuras por paciente</label>
+          <div class="campo-input sem-icone"><input type="number" id="cfg-limite" min="0" max="50" required/></div>
+          <p class="ajuda">Evita que alguém “segure” vários horários. Use 0 para não limitar. A recepção pode agendar além do limite.</p>
+        </div>
+        <div class="campo">
+          <label for="cfg-prazo">Prazo mínimo para o paciente cancelar ou remarcar (horas)</label>
+          <div class="campo-input sem-icone"><input type="number" id="cfg-prazo" min="0" max="168" required/></div>
+          <p class="ajuda">Ex.: 24 = só até 24 horas antes da consulta. Depois disso, só pela clínica. Use 0 para permitir sempre.</p>
+        </div>
+        <div class="campo">
+          <label for="cfg-antecedencia">Agendar com até quantos dias de antecedência</label>
+          <div class="campo-input sem-icone"><input type="number" id="cfg-antecedencia" min="7" max="730" required/></div>
+        </div>
+        <div class="form-acoes">
+          <button type="submit" class="btn btn-primary">Salvar configurações</button>
+        </div>
+      </form>
     </section>
 
     <!-- ================= TODOS: MINHA CONTA ================= -->
@@ -591,6 +799,7 @@
   <div class="modal-box" id="modal-box"></div>
 </div>
 
+<script src="../shared/agenda.js"></script>
 <script src="demo.js"></script>
 <script src="script.js"></script>
 </body>

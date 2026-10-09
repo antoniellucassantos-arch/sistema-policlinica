@@ -16,6 +16,8 @@ const PROFISSIONAIS = [
     sobre: 'Médica clínica com foco em prevenção e acompanhamento de doenças crônicas, como hipertensão e diabetes.',
     formacao: 'Medicina — USP\nResidência em Clínica Médica — Hospital das Clínicas',
     dias_atendimento: '12345',
+    valor_consulta: 18000,
+    convenios: 'Unimed\nBradesco Saúde\nSulAmérica',
   },
   {
     nome: 'Dr. Carlos Eduardo Souza',
@@ -26,6 +28,13 @@ const PROFISSIONAIS = [
     sobre: 'Cardiologista com mais de 15 anos de experiência em prevenção cardiovascular.',
     formacao: 'Medicina — UNIFESP\nResidência em Cardiologia — InCor',
     dias_atendimento: '135',
+    hora_inicio: '07:00',
+    hora_fim: '13:00',
+    pausa_inicio: null,
+    pausa_fim: null,
+    duracao_consulta: 40,
+    valor_consulta: 35000,
+    convenios: 'Unimed',
   },
   {
     nome: 'Dra. Juliana Martins',
@@ -36,6 +45,9 @@ const PROFISSIONAIS = [
     sobre: 'Pediatra apaixonada por acompanhar o crescimento e desenvolvimento dos pequenos.',
     formacao: 'Medicina — UNICAMP\nResidência em Pediatria — Hospital Infantil Sabará',
     dias_atendimento: '246',
+    duracao_consulta: 20,
+    valor_consulta: 22000,
+    convenios: 'Unimed\nAmil',
   },
   {
     nome: 'Rafael Oliveira',
@@ -46,6 +58,12 @@ const PROFISSIONAIS = [
     sobre: 'Psicólogo clínico com atuação em ansiedade, depressão e orientação profissional.',
     formacao: 'Psicologia — PUC-SP\nEspecialização em Terapia Cognitivo-Comportamental',
     dias_atendimento: '1234',
+    hora_inicio: '09:00',
+    hora_fim: '20:00',
+    pausa_inicio: '13:00',
+    pausa_fim: '14:00',
+    duracao_consulta: 50,
+    valor_consulta: 20000,
   },
 ];
 
@@ -72,17 +90,17 @@ exports.seed = async function (knex) {
     });
     if (!usuarioId) continue;
 
-    await knex('profissionais').insert({
-      usuario_id: usuarioId,
-      especialidade: p.especialidade,
-      registro: p.registro,
-      descricao: p.descricao,
-      sobre: p.sobre,
-      formacao: p.formacao,
-      dias_atendimento: p.dias_atendimento,
-      ativo: true,
-    });
+    const { nome, email, ...perfil } = p; // eslint-disable-line no-unused-vars
+    await knex('profissionais').insert({ usuario_id: usuarioId, ...perfil, ativo: true });
   }
+
+  await criarUsuario(knex, {
+    nome: 'Rita Recepção',
+    email: 'recepcao@demo.com',
+    senha_hash: senhaHash,
+    tipo: 'recepcao',
+    data_cadastro: agora,
+  });
 
   await criarUsuario(knex, {
     nome: 'Maria Paciente',

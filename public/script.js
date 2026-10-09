@@ -21,32 +21,59 @@ const state = {
   abaConsultas: 'proximas',
   periodoAgenda: 'proximas',
   tokenRedefinicao: null,
+  config: { ...RegrasAgenda.CONFIG_PADRAO },
+  bloqueiosProf: [], // datas bloqueadas do profissional escolhido no agendamento
+  pacienteSelecionado: null, // recepção agendando em nome de alguém
+  motivo: RegrasAgenda.MOTIVOS[0],
+  pagamento: 'particular',
+  convenio: '',
+  diaAgenda: null, // agenda geral da equipe
+  filtroAgendaProf: '',
 };
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const DIAS_CURTOS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const ORDEM_DIAS = [1, 2, 3, 4, 5, 6, 0]; // segunda a domingo
-const DIAS_ANTECEDENCIA_MAX = 180;
 
-const TIPOS = { paciente: 'Paciente', profissional: 'Profissional', admin: 'Administrador' };
-const STATUS = { agendada: 'Agendada', concluida: 'Concluída', cancelada: 'Cancelada' };
+const TIPOS = {
+  paciente: 'Paciente', profissional: 'Profissional', recepcao: 'Recepção', admin: 'Administrador',
+};
+const STATUS = {
+  agendada: 'Agendada', concluida: 'Concluída', cancelada: 'Cancelada', faltou: 'Faltou',
+};
+const EQUIPE = ['admin', 'recepcao'];
+const ehEquipe = () => EQUIPE.includes(state.usuario?.tipo);
 
+const CONTA = { id: 'conta', rotulo: 'Minha conta', icone: 'user', soCelular: true };
+
+// "Minha conta" fica no nome do usuário (canto superior); no celular aparece no menu.
 const MENUS = {
   paciente: [
     { id: 'inicio', rotulo: 'Início', icone: 'home' },
     { id: 'agendar', rotulo: 'Agendar consulta', icone: 'calendar-plus' },
     { id: 'consultas', rotulo: 'Minhas consultas', icone: 'clipboard' },
-    { id: 'conta', rotulo: 'Minha conta', icone: 'user' },
+    CONTA,
   ],
   profissional: [
     { id: 'agenda', rotulo: 'Minha agenda', icone: 'calendar' },
-    { id: 'perfil-publico', rotulo: 'Perfil público', icone: 'stethoscope' },
-    { id: 'conta', rotulo: 'Minha conta', icone: 'user' },
+    { id: 'bloqueios', rotulo: 'Folgas e bloqueios', icone: 'lock' },
+    { id: 'perfil-publico', rotulo: 'Perfil e horários', icone: 'stethoscope' },
+    CONTA,
+  ],
+  recepcao: [
+    { id: 'agenda-geral', rotulo: 'Agenda', icone: 'calendar' },
+    { id: 'agendar', rotulo: 'Agendar', icone: 'calendar-plus' },
+    { id: 'bloqueios', rotulo: 'Bloqueios', icone: 'lock' },
+    CONTA,
   ],
   admin: [
-    { id: 'admin', rotulo: 'Profissionais', icone: 'users' },
-    { id: 'conta', rotulo: 'Minha conta', icone: 'user' },
+    { id: 'agenda-geral', rotulo: 'Agenda', icone: 'calendar' },
+    { id: 'agendar', rotulo: 'Agendar', icone: 'calendar-plus' },
+    { id: 'admin', rotulo: 'Equipe', icone: 'users' },
+    { id: 'bloqueios', rotulo: 'Bloqueios', icone: 'lock' },
+    { id: 'configuracoes', rotulo: 'Configurações', icone: 'shield' },
+    CONTA,
   ],
 };
 
@@ -373,7 +400,7 @@ $$('[data-auth]').forEach((link) => {
 ========================================================== */
 function montarMenu() {
   $('#nav-links').innerHTML = MENUS[state.usuario.tipo].map((i) => `
-    <a href="#${i.id}" class="nav-link" data-page="${i.id}">${icone(i.icone)} ${esc(i.rotulo)}</a>
+    <a href="#${i.id}" class="nav-link${i.soCelular ? ' so-celular' : ''}" data-page="${i.id}">${icone(i.icone)} ${esc(i.rotulo)}</a>
   `).join('');
 }
 
@@ -403,6 +430,9 @@ function renderizarPagina() {
     agenda: carregarAgenda,
     'perfil-publico': abrirPerfilPublico,
     admin: carregarAdmin,
+    'agenda-geral': carregarAgendaGeral,
+    bloqueios: carregarBloqueios,
+    configuracoes: preencherConfiguracoes,
     conta: preencherConta,
   }[pagina];
 
@@ -430,8 +460,14 @@ function atualizarCabecalho() {
 async function iniciarApp(dados) {
   state.usuario = dados.usuario;
   state.profissional = dados.profissional;
+  state.pacienteSelecionado = null;
   atualizarCabecalho();
   montarMenu();
+  try {
+    state.config = await api('/configuracoes');
+  } catch {
+    // mantém o padrão
+  }
   mostrarTela('app');
   renderizarPagina();
 }
@@ -539,6 +575,63 @@ $('#form-redefinir').addEventListener('submit', (e) => {
 });
 
 /* ==========================================================
+   FORMATAÇÃO DE AGENDA, VALORES E CONSULTAS
+========================================================== */
+function fmtValor(centavos) {
+  if (centavos === null || centavos === undefined) return '';
+  return (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function fmtDuracao(min) {
+  return min >= 60 && min % 60 === 0 ? `${min / 60}h` : `${min} min`;
+}
+
+/** "08:00" → "8h"; "08:30" → "8h30" */
+function fmtHora(h) {
+  if (!h) return '';
+  const [hh, mm] = h.split(':');
+  return `${Number(hh)}h${mm === '00' ? '' : mm}`;
+}
+
+function expedienteTexto(p) {
+  if (!p.hora_inicio) return '';
+  const pausa = p.pausa_inicio && p.pausa_fim ? ` (pausa ${fmtHora(p.pausa_inicio)}–${fmtHora(p.pausa_fim)})` : '';
+  return `${fmtHora(p.hora_inicio)} às ${fmtHora(p.hora_fim)}${pausa}`;
+}
+
+function pagamentoTexto(c) {
+  if (c.pagamento === 'convenio') return `Convênio ${c.convenio || ''}`.trim();
+  return c.valor !== null && c.valor !== undefined ? `Particular · ${fmtValor(c.valor)}` : 'Particular';
+}
+
+function agoraLocal() {
+  const d = new Date();
+  return { data: isoDe(d), hora: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
+}
+
+/** O paciente ainda está dentro do prazo para cancelar/remarcar pelo site? */
+function pacientePodeAlterar(c) {
+  const horas = state.config.prazo_cancelamento_horas;
+  return !horas || RegrasAgenda.minutosAte(c.data, c.horario, agoraLocal()) >= horas * 60;
+}
+
+function limiteDeAgendamentoISO() {
+  const d = new Date();
+  d.setDate(d.getDate() + state.config.antecedencia_maxima_dias);
+  return isoDe(d);
+}
+
+function tagsConsultaHTML(c) {
+  const tags = [];
+  if (c.motivo) tags.push(`<span class="tag">${esc(c.motivo)}</span>`);
+  tags.push(`<span class="tag ${c.pagamento === 'convenio' ? 'convenio' : 'particular'}">${esc(pagamentoTexto(c))}</span>`);
+  if (c.duracao) tags.push(`<span class="tag">${icone('clock')} ${fmtDuracao(c.duracao)}</span>`);
+  return `
+    <div class="consulta-extra">${tags.join('')}</div>
+    ${c.observacao ? `<p class="observacao-texto">“${esc(c.observacao)}”</p>` : ''}`;
+}
+
+/* ==========================================================
    PROFISSIONAIS (cartões e perfil completo)
 ========================================================== */
 async function carregarProfissionais() {
@@ -549,7 +642,16 @@ async function carregarProfissionais() {
   }
 }
 
+function precoResumo(p) {
+  if (p.aceita_particular && p.valor_consulta !== null && p.valor_consulta !== undefined) return fmtValor(p.valor_consulta);
+  if (!p.aceita_particular) return 'Só convênio';
+  return '';
+}
+
 function cardProfissionalHTML(p, selecionado = false) {
+  const meta = [p.duracao_consulta ? fmtDuracao(p.duracao_consulta) : '', precoResumo(p),
+    (p.convenios || []).length ? `${p.convenios.length} convênio${p.convenios.length > 1 ? 's' : ''}` : '']
+    .filter(Boolean);
   return `
     <div class="prof-card clicavel${selecionado ? ' selected' : ''}" data-id="${p.id}" tabindex="0" role="button"
          aria-pressed="${selecionado}">
@@ -561,6 +663,7 @@ function cardProfissionalHTML(p, selecionado = false) {
         </div>
       </div>
       <p class="desc">${esc(p.descricao || 'Profissional da nossa equipe.')}</p>
+      ${meta.length ? `<p class="prof-meta">${meta.map(esc).join(' · ')}</p>` : ''}
       <div class="prof-rodape">
         ${diasHTML(p.dias_atendimento)}
         <button type="button" class="btn-perfil" data-perfil="${p.id}">Ver perfil</button>
@@ -570,6 +673,10 @@ function cardProfissionalHTML(p, selecionado = false) {
 
 function perfilDetalhadoHTML(p) {
   const formacao = String(p.formacao || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const convenios = p.convenios || [];
+  const valor = p.aceita_particular
+    ? `Particular: ${p.valor_consulta !== null && p.valor_consulta !== undefined ? fmtValor(p.valor_consulta) : 'consulte a clínica'}`
+    : 'Não atende consultas particulares';
   return `
     <div class="perfil-det-topo">
       ${avatarHTML(p, 'xl')}
@@ -590,8 +697,14 @@ function perfilDetalhadoHTML(p) {
         <ul>${formacao.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
       </div>` : ''}
     <div class="perfil-det-secao">
-      <h4>${icone('calendar')} Dias de atendimento</h4>
-      <p>${esc(diasPorExtenso(p.dias_atendimento) || 'Nenhum dia definido')} · 8h às 18h</p>
+      <h4>${icone('calendar')} Atendimento</h4>
+      <p>${esc(diasPorExtenso(p.dias_atendimento) || 'Nenhum dia definido')} · ${esc(expedienteTexto(p))}<br/>
+      Consultas de ${esc(fmtDuracao(p.duracao_consulta || 30))}</p>
+    </div>
+    <div class="perfil-det-secao">
+      <h4>${icone('badge')} Valores e convênios</h4>
+      <p>${esc(valor)}</p>
+      ${convenios.length ? `<div class="consulta-extra">${convenios.map((c) => `<span class="tag convenio">${esc(c)}</span>`).join('')}</div>` : '<p class="muted pequeno">Não atende por convênio.</p>'}
     </div>`;
 }
 
@@ -625,7 +738,7 @@ function ligarCartoes(container, aoEscolher) {
       return;
     }
     const card = e.target.closest('.prof-card');
-    if (card) aoEscolher(Number(card.dataset.id));
+    if (card && card.dataset.id !== '0') aoEscolher(Number(card.dataset.id));
   });
   container.addEventListener('keydown', (e) => {
     const card = e.target.closest('.prof-card');
@@ -646,6 +759,7 @@ async function carregarInicio() {
   const [resumo] = await Promise.all([api('/resumo'), carregarProfissionais()]);
   $('#stat-prof').textContent = resumo.profissionais;
   $('#stat-consultas').textContent = resumo.proximas;
+  $('#stat-especialidades').textContent = new Set(state.profissionais.map((p) => p.especialidade)).size;
 
   const c = resumo.proxima;
   $('#hero-proxima').innerHTML = c
@@ -673,18 +787,148 @@ ligarCartoes($('#inicio-profissionais'), (id) => {
 });
 
 /* ==========================================================
-   PACIENTE — AGENDAR
+   AGENDAR (paciente para si; recepção em nome do paciente)
 ========================================================== */
 async function abrirAgendar() {
+  const equipe = ehEquipe();
+  $('#agendar-titulo').textContent = equipe ? 'Novo agendamento' : 'Agendar consulta';
+  $('#agendar-subtitulo').textContent = equipe
+    ? 'Agende em nome de um paciente (por telefone ou no balcão).'
+    : 'Escolha o profissional, a data e o horário que preferir.';
+  $('#resumo-rodape').textContent = equipe
+    ? 'A consulta aparece na agenda do profissional e na área do paciente.'
+    : 'Você pode remarcar ou cancelar em “Minhas consultas”.';
+  $('#passo-paciente').classList.toggle('hidden', !equipe);
+  if (equipe) {
+    renderPacienteEscolhido();
+    if (!state.pacienteSelecionado) buscarPacientes('');
+  }
+
   renderCalendario();
+  renderMotivos();
+  renderPagamento();
   atualizarResumo();
   await carregarProfissionais();
+  if (state.profissionalSelecionado) await carregarBloqueiosDoProfissional();
   renderFiltros();
   renderProfissionais();
   renderCalendario();
+  renderPagamento();
   carregarHorarios();
 }
 
+/* ---------- Passo "Paciente" (só equipe) ---------- */
+let esperaBusca = null;
+let pedidoPacientes = 0;
+
+function descricaoPaciente(p) {
+  return [p.telefone, p.email].filter(Boolean).join(' · ') || 'Sem contato cadastrado';
+}
+
+function renderPacienteEscolhido() {
+  const p = state.pacienteSelecionado;
+  $('#paciente-escolhido').classList.toggle('hidden', !p);
+  $('#paciente-busca').classList.toggle('hidden', !!p);
+  $('#paciente-escolhido').innerHTML = p ? `
+    <div class="paciente-escolhido">
+      ${avatarHTML(p)}
+      <div><strong>${esc(p.nome)}</strong><span>${esc(descricaoPaciente(p))}</span></div>
+      <button type="button" class="btn btn-secundario btn-sm" id="btn-trocar-paciente">Trocar</button>
+    </div>` : '';
+}
+
+async function buscarPacientes(termo) {
+  const pedido = ++pedidoPacientes;
+  const container = $('#pacientes-resultado');
+  try {
+    const lista = await api(`/pacientes?busca=${encodeURIComponent(termo)}`);
+    if (pedido !== pedidoPacientes) return;
+    state.pacientesEncontrados = lista;
+    container.innerHTML = lista.length
+      ? lista.map((p) => `
+          <button type="button" class="paciente-item" data-paciente="${p.id}">
+            ${avatarHTML(p, 'sm')}
+            <div><strong>${esc(p.nome)}</strong><span>${esc(descricaoPaciente(p))}</span></div>
+          </button>`).join('')
+      : `<p class="muted pequeno">${termo ? 'Nenhum paciente encontrado. Cadastre um novo abaixo.' : 'Nenhum paciente cadastrado ainda.'}</p>`;
+  } catch (err) {
+    if (!err.silencioso) container.innerHTML = `<p class="muted pequeno">${esc(err.message)}</p>`;
+  }
+}
+
+$('#busca-paciente').addEventListener('input', (e) => {
+  clearTimeout(esperaBusca);
+  esperaBusca = setTimeout(() => buscarPacientes(e.target.value.trim()), 250);
+});
+
+$('#pacientes-resultado').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-paciente]');
+  if (!item) return;
+  state.pacienteSelecionado = state.pacientesEncontrados.find((p) => p.id === Number(item.dataset.paciente));
+  renderPacienteEscolhido();
+  atualizarResumo();
+});
+
+$('#paciente-escolhido').addEventListener('click', (e) => {
+  if (!e.target.closest('#btn-trocar-paciente')) return;
+  state.pacienteSelecionado = null;
+  renderPacienteEscolhido();
+  atualizarResumo();
+  $('#busca-paciente').focus();
+});
+
+$('#btn-novo-paciente').addEventListener('click', () => {
+  const termo = $('#busca-paciente').value.trim();
+  abrirModal(`
+    <button class="btn-icone modal-fechar" data-fechar aria-label="Fechar">${icone('x')}</button>
+    <h3 class="form-titulo">Novo paciente</h3>
+    <p class="form-sub">Com e-mail, o paciente pode criar a senha depois em “Esqueci minha senha” e receber lembretes.</p>
+    <form id="form-novo-paciente">
+      <div class="campo">
+        <label for="npac-nome">Nome completo</label>
+        <div class="campo-input sem-icone"><input id="npac-nome" required maxlength="120" value="${esc(/\d|@/.test(termo) ? '' : termo)}"/></div>
+      </div>
+      <div class="grade-2">
+        <div class="campo">
+          <label for="npac-telefone">Telefone</label>
+          <div class="campo-input sem-icone"><input type="tel" id="npac-telefone" placeholder="(00) 00000-0000"/></div>
+        </div>
+        <div class="campo">
+          <label for="npac-nascimento">Nascimento <span class="opcional">(opcional)</span></label>
+          <div class="campo-input sem-icone"><input type="date" id="npac-nascimento"/></div>
+        </div>
+      </div>
+      <div class="campo">
+        <label for="npac-email">E-mail <span class="opcional">(opcional)</span></label>
+        <div class="campo-input sem-icone"><input type="email" id="npac-email" placeholder="paciente@email.com"/></div>
+      </div>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-secundario" data-fechar>Cancelar</button>
+        <button type="submit" class="btn btn-primary">Cadastrar e selecionar</button>
+      </div>
+    </form>`);
+  $('#form-novo-paciente').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    comCarregamento(ev.target.querySelector('button[type=submit]'), async () => {
+      const paciente = await api('/pacientes', {
+        metodo: 'POST',
+        corpo: {
+          nome: $('#npac-nome').value.trim(),
+          telefone: $('#npac-telefone').value.trim(),
+          email: $('#npac-email').value.trim(),
+          data_nascimento: $('#npac-nascimento').value,
+        },
+      });
+      fecharModal(false);
+      state.pacienteSelecionado = paciente;
+      renderPacienteEscolhido();
+      atualizarResumo();
+      showToast('Paciente cadastrado.', 'success');
+    });
+  });
+});
+
+/* ---------- Passo "Profissional" ---------- */
 function renderFiltros() {
   const especialidades = [...new Set(state.profissionais.map((p) => p.especialidade))].sort();
   if (!especialidades.includes(state.filtroEspecialidade)) state.filtroEspecialidade = '';
@@ -728,34 +972,53 @@ function renderProfissionais() {
 
 ligarCartoes($('#profissionais-list'), selecionarProfissional);
 
-function atendeNoDia(p, iso) {
-  return String(p.dias_atendimento).includes(String(dataDeISO(iso).getDay()));
+function diaDisponivel(p, iso) {
+  return String(p.dias_atendimento).includes(String(dataDeISO(iso).getDay()))
+    && !RegrasAgenda.bloqueioDoDia(state.bloqueiosProf, iso);
 }
 
-function selecionarProfissional(id) {
+async function carregarBloqueiosDoProfissional() {
+  const p = state.profissionalSelecionado;
+  state.bloqueiosProf = [];
+  if (!p) return;
+  try {
+    const lista = await api(`/profissionais/${p.id}/bloqueios`);
+    if (state.profissionalSelecionado?.id === p.id) state.bloqueiosProf = lista;
+  } catch {
+    // sem bloqueios conhecidos; o servidor confere de novo ao agendar
+  }
+}
+
+function pagamentoPadrao(p) {
+  if (p.aceita_particular) return { pagamento: 'particular', convenio: '' };
+  return { pagamento: 'convenio', convenio: p.convenios[0] || '' };
+}
+
+async function selecionarProfissional(id) {
   const p = state.profissionais.find((x) => x.id === id);
   if (!p) return;
   state.profissionalSelecionado = p;
   state.horarioSelecionado = null;
-  if (state.dataSelecionada && !atendeNoDia(p, state.dataSelecionada)) state.dataSelecionada = null;
+  Object.assign(state, pagamentoPadrao(p));
+  await carregarBloqueiosDoProfissional();
+  if (state.dataSelecionada && !diaDisponivel(p, state.dataSelecionada)) state.dataSelecionada = null;
   if ($('#page-agendar').classList.contains('active')) {
     renderProfissionais();
     renderCalendario();
+    renderPagamento();
     carregarHorarios();
   }
   atualizarResumo();
 }
 
-/* ---------- Calendário ---------- */
+/* ---------- Passo "Data" ---------- */
 function renderCalendario() {
   const ano = state.mesAtual.getFullYear();
   const mes = state.mesAtual.getMonth();
   $('#cal-title').textContent = `${MESES[mes]} ${ano}`;
 
   const hoje = hojeISO();
-  const limite = new Date();
-  limite.setDate(limite.getDate() + DIAS_ANTECEDENCIA_MAX);
-  const limiteISO = isoDe(limite);
+  const limiteISO = limiteDeAgendamentoISO();
   const p = state.profissionalSelecionado;
 
   const primeiroDia = new Date(ano, mes, 1).getDay();
@@ -766,7 +1029,7 @@ function renderCalendario() {
 
   for (let d = 1; d <= diasNoMes; d++) {
     const iso = `${ano}-${pad(mes + 1)}-${pad(d)}`;
-    const desabilitado = iso < hoje || iso > limiteISO || (p && !atendeNoDia(p, iso));
+    const desabilitado = iso < hoje || iso > limiteISO || (p && !diaDisponivel(p, iso));
     const classes = ['dia'];
     if (desabilitado) classes.push('disabled');
     if (iso === hoje) classes.push('today');
@@ -775,12 +1038,11 @@ function renderCalendario() {
   }
   $('#calendar-days').innerHTML = html;
 
-  const mesHoje = inicioDoMes(new Date());
-  $('#prev-month').disabled = state.mesAtual <= mesHoje;
-  $('#next-month').disabled = state.mesAtual >= inicioDoMes(limite);
+  $('#prev-month').disabled = state.mesAtual <= inicioDoMes(new Date());
+  $('#next-month').disabled = state.mesAtual >= inicioDoMes(dataDeISO(limiteISO));
 
   $('#cal-legenda').textContent = p
-    ? `${nomeCurto(p.nome)} atende: ${diasPorExtenso(p.dias_atendimento)}`
+    ? `${nomeCurto(p.nome)} atende: ${diasPorExtenso(p.dias_atendimento)}, ${expedienteTexto(p)}`
     : 'Escolha um profissional para ver os dias de atendimento.';
 }
 
@@ -813,8 +1075,29 @@ $('#next-month').addEventListener('click', () => {
   renderCalendario();
 });
 
-/* ---------- Horários ---------- */
+/* ---------- Passo "Horário" ---------- */
 let pedidoHorarios = 0;
+
+/** Grade de horários (usada no agendamento e no "remarcar"). */
+function gradeHorariosHTML(r, selecionado) {
+  if (!r.atende) return vazioHTML('calendar', 'Sem atendimento nesta data', r.motivo);
+  if (!r.horarios.some((h) => h.disponivel)) {
+    return vazioHTML('calendar', 'Agenda cheia neste dia', 'Escolha outra data para ver mais horários.');
+  }
+  const grupo = (titulo, lista) => (lista.length ? `
+    <div class="horarios-grupo">
+      <h4>${titulo}</h4>
+      <div class="horarios-grid">
+        ${lista.map((h) => `
+          <button type="button" class="horario${h.disponivel ? '' : ' ocupado'}${selecionado === h.horario ? ' selected' : ''}"
+            ${h.disponivel ? `data-horario="${h.horario}"` : 'disabled title="Horário indisponível"'}>${h.horario}</button>
+        `).join('')}
+      </div>
+    </div>` : '');
+  return grupo('Manhã', r.horarios.filter((h) => h.horario < '12:00'))
+    + grupo('Tarde', r.horarios.filter((h) => h.horario >= '12:00' && h.horario < '18:00'))
+    + grupo('Noite', r.horarios.filter((h) => h.horario >= '18:00'));
+}
 
 async function carregarHorarios() {
   const container = $('#horarios-container');
@@ -841,30 +1124,7 @@ async function carregarHorarios() {
 }
 
 function renderHorarios() {
-  const container = $('#horarios-container');
-  const r = state.horarios;
-  if (!r.atende) {
-    container.innerHTML = vazioHTML('calendar', 'Sem atendimento nesta data', r.motivo);
-    return;
-  }
-  if (!r.horarios.some((h) => h.disponivel)) {
-    container.innerHTML = vazioHTML('calendar', 'Agenda cheia neste dia', 'Escolha outra data para ver mais horários.');
-    return;
-  }
-
-  const grupo = (titulo, lista) => (lista.length ? `
-    <div class="horarios-grupo">
-      <h4>${titulo}</h4>
-      <div class="horarios-grid">
-        ${lista.map((h) => `
-          <button type="button" class="horario${h.disponivel ? '' : ' ocupado'}${state.horarioSelecionado === h.horario ? ' selected' : ''}"
-            ${h.disponivel ? `data-horario="${h.horario}"` : 'disabled title="Horário indisponível"'}>${h.horario}</button>
-        `).join('')}
-      </div>
-    </div>` : '');
-
-  container.innerHTML = grupo('Manhã', r.horarios.filter((h) => h.horario < '12:00'))
-    + grupo('Tarde', r.horarios.filter((h) => h.horario >= '12:00'));
+  $('#horarios-container').innerHTML = gradeHorariosHTML(state.horarios, state.horarioSelecionado);
 }
 
 $('#horarios-container').addEventListener('click', (e) => {
@@ -875,33 +1135,120 @@ $('#horarios-container').addEventListener('click', (e) => {
   atualizarResumo();
 });
 
+/* ---------- Passo "Detalhes" (motivo, pagamento, observação) ---------- */
+function renderMotivos() {
+  $('#motivos').innerHTML = RegrasAgenda.MOTIVOS.map((m) => `
+    <button type="button" class="chip${state.motivo === m ? ' active' : ''}" data-motivo="${esc(m)}">${esc(m)}</button>
+  `).join('');
+}
+
+$('#motivos').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-motivo]');
+  if (!chip) return;
+  state.motivo = chip.dataset.motivo;
+  renderMotivos();
+});
+
+function renderPagamento() {
+  const p = state.profissionalSelecionado;
+  const container = $('#pagamento-opcoes');
+  if (!p) {
+    container.innerHTML = '<p class="muted pequeno">Escolha o profissional para ver valores e convênios.</p>';
+    return;
+  }
+  const convenios = p.convenios || [];
+  container.innerHTML = `
+    <label class="pagamento-opcao${p.aceita_particular ? '' : ' indisponivel'}">
+      <input type="radio" name="pagamento" value="particular" ${state.pagamento === 'particular' ? 'checked' : ''} ${p.aceita_particular ? '' : 'disabled'}/>
+      <strong>Particular</strong>
+      <span>${p.aceita_particular ? esc(fmtValor(p.valor_consulta) || 'Valor informado pela clínica') : 'Não atende particular'}</span>
+    </label>
+    <label class="pagamento-opcao${convenios.length ? '' : ' indisponivel'}">
+      <input type="radio" name="pagamento" value="convenio" ${state.pagamento === 'convenio' ? 'checked' : ''} ${convenios.length ? '' : 'disabled'}/>
+      <strong>Convênio</strong>
+      <span>${convenios.length ? esc(convenios.join(', ')) : 'Não atende convênio'}</span>
+      ${state.pagamento === 'convenio' && convenios.length ? `
+        <select class="select" id="sel-convenio">
+          ${convenios.map((c) => `<option ${c === state.convenio ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        </select>` : ''}
+    </label>`;
+}
+
+$('#pagamento-opcoes').addEventListener('change', (e) => {
+  if (e.target.name === 'pagamento') {
+    state.pagamento = e.target.value;
+    if (state.pagamento === 'convenio' && !state.convenio) {
+      [state.convenio] = state.profissionalSelecionado.convenios;
+    }
+    renderPagamento();
+  } else if (e.target.id === 'sel-convenio') {
+    state.convenio = e.target.value;
+  }
+  atualizarResumo();
+});
+
 /* ---------- Resumo e confirmação ---------- */
 function atualizarResumo() {
   const p = state.profissionalSelecionado;
+  const paciente = state.pacienteSelecionado;
+  const equipe = ehEquipe();
   const linha = (nomeIcone, rotulo, valor, vazio) => `
     <div class="resumo-linha ${valor ? 'ok' : 'vazio'}">
       <span class="resumo-icone">${icone(nomeIcone)}</span>
       <div><small>${rotulo}</small><strong>${esc(valor || vazio)}</strong></div>
     </div>`;
 
-  $('#resumo-conteudo').innerHTML = (p
-    ? `<div class="resumo-linha ok">${avatarHTML(p, 'sm')}<div><small>Profissional</small><strong>${esc(p.nome)}</strong><div class="muted pequeno">${esc(p.especialidade)}</div></div></div>`
-    : linha('stethoscope', 'Profissional', '', 'Não selecionado'))
-    + linha('calendar', 'Data', state.dataSelecionada ? fmtDataLonga(state.dataSelecionada) : '', 'Não selecionada')
-    + linha('clock', 'Horário', state.horarioSelecionado, 'Não selecionado');
+  const pagamentoOk = p && (state.pagamento === 'particular' ? p.aceita_particular : !!state.convenio);
+  const pagamento = p ? pagamentoTexto({
+    pagamento: state.pagamento, convenio: state.convenio, valor: state.pagamento === 'particular' ? p.valor_consulta : null,
+  }) : '';
 
-  $('#btn-agendar').disabled = !(p && state.dataSelecionada && state.horarioSelecionado);
+  $('#resumo-conteudo').innerHTML = (equipe ? linha('user', 'Paciente', paciente?.nome, 'Não selecionado') : '')
+    + (p
+      ? `<div class="resumo-linha ok">${avatarHTML(p, 'sm')}<div><small>Profissional</small><strong>${esc(p.nome)}</strong><div class="muted pequeno">${esc(p.especialidade)}</div></div></div>`
+      : linha('stethoscope', 'Profissional', '', 'Não selecionado'))
+    + linha('calendar', 'Data', state.dataSelecionada ? fmtDataLonga(state.dataSelecionada) : '', 'Não selecionada')
+    + linha('clock', 'Horário', state.horarioSelecionado
+      ? `${state.horarioSelecionado} (${fmtDuracao(p?.duracao_consulta || 30)})` : '', 'Não selecionado')
+    + linha('badge', 'Pagamento', pagamentoOk ? pagamento : '', 'Não definido');
+
+  $('#btn-agendar').disabled = !(p && state.dataSelecionada && state.horarioSelecionado && pagamentoOk
+    && (!equipe || paciente));
+}
+
+function limparAgendamento() {
+  state.profissionalSelecionado = null;
+  state.dataSelecionada = null;
+  state.horarioSelecionado = null;
+  state.pacienteSelecionado = null;
+  state.bloqueiosProf = [];
+  state.motivo = RegrasAgenda.MOTIVOS[0];
+  $('#observacao').value = '';
+  $('#busca-paciente').value = '';
 }
 
 $('#btn-agendar').addEventListener('click', (e) => {
   const p = state.profissionalSelecionado;
   const data = state.dataSelecionada;
   const horario = state.horarioSelecionado;
+  const paciente = state.pacienteSelecionado;
+  const equipe = ehEquipe();
   if (!p || !data || !horario) return;
+
+  const corpo = {
+    profissional_id: p.id,
+    data,
+    horario,
+    motivo: state.motivo,
+    observacao: $('#observacao').value.trim(),
+    pagamento: state.pagamento,
+    convenio: state.pagamento === 'convenio' ? state.convenio : '',
+    paciente_id: equipe ? paciente?.id : undefined,
+  };
 
   comCarregamento(e.currentTarget, async () => {
     try {
-      await api('/consultas', { metodo: 'POST', corpo: { profissional_id: p.id, data, horario } });
+      await api('/consultas', { metodo: 'POST', corpo });
     } catch (err) {
       if (err.status === 409) carregarHorarios();
       throw err;
@@ -910,28 +1257,146 @@ $('#btn-agendar').addEventListener('click', (e) => {
     abrirModal(`
       <div class="modal-icone sucesso">${icone('check')}</div>
       <h3 class="modal-titulo">Consulta agendada!</h3>
-      <p class="modal-texto">Tudo certo. Chegue com 15 minutos de antecedência.</p>
+      <p class="modal-texto">${equipe ? 'Avise o paciente: chegar com 15 minutos de antecedência.' : 'Tudo certo. Chegue com 15 minutos de antecedência.'}</p>
       <div class="detalhes">
+        <div class="detalhe"><span>Paciente</span><strong>${esc(equipe ? paciente.nome : state.usuario.nome)}</strong></div>
         <div class="detalhe"><span>Profissional</span><strong>${esc(p.nome)}</strong></div>
-        <div class="detalhe"><span>Especialidade</span><strong>${esc(p.especialidade)}</strong></div>
         <div class="detalhe"><span>Data</span><strong>${esc(fmtDataLonga(data))}</strong></div>
-        <div class="detalhe"><span>Horário</span><strong>${esc(horario)}</strong></div>
-        <div class="detalhe"><span>Paciente</span><strong>${esc(state.usuario.nome)}</strong></div>
+        <div class="detalhe"><span>Horário</span><strong>${esc(horario)} (${esc(fmtDuracao(p.duracao_consulta))})</strong></div>
+        <div class="detalhe"><span>Pagamento</span><strong>${esc(pagamentoTexto({ ...corpo, valor: corpo.pagamento === 'particular' ? p.valor_consulta : null }))}</strong></div>
       </div>
       <div class="modal-acoes">
-        <button class="btn btn-secundario" data-fechar>Fechar</button>
-        <a href="#consultas" class="btn btn-primary" data-fechar>Ver minhas consultas</a>
+        <button class="btn btn-secundario" data-fechar>${equipe ? 'Agendar outra' : 'Fechar'}</button>
+        <a href="#${equipe ? 'agenda-geral' : 'consultas'}" class="btn btn-primary" data-fechar>${equipe ? 'Ver agenda' : 'Ver minhas consultas'}</a>
       </div>`);
 
-    state.profissionalSelecionado = null;
-    state.dataSelecionada = null;
-    state.horarioSelecionado = null;
-    renderProfissionais();
-    renderCalendario();
-    carregarHorarios();
-    atualizarResumo();
+    limparAgendamento();
+    abrirAgendar();
   });
 });
+
+/* ==========================================================
+   REMARCAR (paciente, profissional e equipe)
+========================================================== */
+function abrirReagendar(c, aoConcluir) {
+  const hoje = hojeISO();
+  const estado = { data: c.data >= hoje ? c.data : hoje, horario: null };
+
+  abrirModal(`
+    <button class="btn-icone modal-fechar" data-fechar aria-label="Fechar">${icone('x')}</button>
+    <h3 class="form-titulo">Remarcar consulta</h3>
+    <p class="form-sub">${esc(c.paciente_nome && ehEquipe() ? `${c.paciente_nome} com ` : '')}${esc(c.profissional_nome || 'o profissional')}
+      · marcada para ${esc(fmtData(c.data))} às ${esc(c.horario)}</p>
+    <div class="campo">
+      <label for="rea-data">Nova data</label>
+      <div class="campo-input sem-icone"><input type="date" id="rea-data" min="${hoje}" max="${limiteDeAgendamentoISO()}" value="${estado.data}"/></div>
+    </div>
+    <div id="rea-horarios"></div>
+    <div class="modal-acoes">
+      <button type="button" class="btn btn-secundario" data-fechar>Voltar</button>
+      <button type="button" class="btn btn-primary" id="rea-confirmar" disabled>Confirmar nova data</button>
+    </div>`, { largo: true });
+
+  const carregar = async () => {
+    estado.horario = null;
+    $('#rea-confirmar').disabled = true;
+    const container = $('#rea-horarios');
+    if (!estado.data) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = carregandoHTML();
+    try {
+      const r = await api(`/profissionais/${c.profissional_id}/horarios?data=${estado.data}&ignorar=${c.id}`);
+      estado.resposta = r;
+      container.innerHTML = gradeHorariosHTML(r, null);
+    } catch (err) {
+      container.innerHTML = vazioHTML('alert', 'Não foi possível carregar os horários.', err.message);
+    }
+  };
+
+  $('#rea-data').addEventListener('change', (e) => {
+    estado.data = e.target.value;
+    carregar();
+  });
+  $('#rea-horarios').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-horario]');
+    if (!btn) return;
+    estado.horario = btn.dataset.horario;
+    $('#rea-horarios').innerHTML = gradeHorariosHTML(estado.resposta, estado.horario);
+    $('#rea-confirmar').disabled = false;
+  });
+  $('#rea-confirmar').addEventListener('click', (e) => {
+    comCarregamento(e.currentTarget, async () => {
+      await api(`/consultas/${c.id}/reagendar`, {
+        metodo: 'PATCH', corpo: { data: estado.data, horario: estado.horario },
+      });
+      fecharModal(false);
+      showToast(`Consulta remarcada para ${fmtData(estado.data)} às ${estado.horario}.`, 'success');
+      aoConcluir();
+    });
+  });
+  carregar();
+}
+
+/* ==========================================================
+   AÇÕES SOBRE CONSULTAS (concluir, faltou, cancelar, remarcar)
+========================================================== */
+async function alterarStatus(id, status, mensagem) {
+  try {
+    await api(`/consultas/${id}`, { metodo: 'PATCH', corpo: { status } });
+    showToast(mensagem, 'success');
+  } catch (err) {
+    if (!err.silencioso) showToast(err.message, 'error');
+  }
+}
+
+/** Botões de ação para quem gerencia a agenda (profissional / equipe). */
+function acoesEquipeHTML(c) {
+  if (c.status !== 'agendada') return '';
+  return `
+    <div class="consulta-acoes">
+      <button class="btn btn-sucesso btn-sm" data-acao="concluida" data-id="${c.id}">${icone('check')} Concluir</button>
+      <button class="btn btn-secundario btn-sm" data-acao="faltou" data-id="${c.id}">Faltou</button>
+      <button class="btn btn-secundario btn-sm" data-acao="reagendar" data-id="${c.id}">Remarcar</button>
+      <button class="btn btn-perigo btn-sm" data-acao="cancelada" data-id="${c.id}">${icone('x')} Cancelar</button>
+    </div>`;
+}
+
+/** Trata os cliques nos botões de ação de uma lista de consultas. */
+async function tratarAcaoConsulta(e, lista, recarregar) {
+  const btn = e.target.closest('[data-acao]');
+  if (!btn) return;
+  const c = lista().find((x) => x.id === Number(btn.dataset.id));
+  if (!c) return;
+  const quem = c.paciente_nome && state.usuario.tipo !== 'paciente' ? c.paciente_nome : c.profissional_nome;
+  const resumo = `${quem} — ${fmtData(c.data)} às ${c.horario}`;
+  const acao = btn.dataset.acao;
+
+  if (acao === 'reagendar') {
+    abrirReagendar(c, recarregar);
+    return;
+  }
+  if (acao === 'concluida') {
+    await alterarStatus(c.id, 'concluida', 'Consulta marcada como concluída.');
+  } else if (acao === 'faltou') {
+    const ok = await confirmar({
+      titulo: 'Registrar falta?', texto: `${resumo}. O paciente não compareceu.`, botao: 'Registrar falta', perigo: true,
+    });
+    if (!ok) return;
+    await alterarStatus(c.id, 'faltou', 'Falta registrada.');
+  } else if (acao === 'cancelada') {
+    const ok = await confirmar({
+      titulo: 'Cancelar consulta?',
+      texto: `${resumo}. O horário ficará livre para outros pacientes.`,
+      botao: 'Sim, cancelar',
+      perigo: true,
+    });
+    if (!ok) return;
+    await alterarStatus(c.id, 'cancelada', 'Consulta cancelada.');
+  }
+  recarregar();
+}
 
 /* ==========================================================
    PACIENTE — MINHAS CONSULTAS
@@ -960,9 +1425,18 @@ function renderConsultas() {
     return;
   }
 
+  const prazo = state.config.prazo_cancelamento_horas;
   container.innerHTML = lista.map((c) => {
     const d = dataDeISO(c.data);
-    const podeCancelar = ehProxima(c);
+    let acoes = '';
+    if (ehProxima(c)) {
+      acoes = pacientePodeAlterar(c)
+        ? `<div class="consulta-acoes">
+            <button class="btn btn-secundario btn-sm" data-acao="reagendar" data-id="${c.id}">Remarcar</button>
+            <button class="btn btn-perigo btn-sm" data-acao="cancelada" data-id="${c.id}">${icone('x')} Cancelar</button>
+          </div>`
+        : `<p class="prazo-aviso">Faltam menos de ${prazo}h para a consulta. Para remarcar ou cancelar, fale com a clínica.</p>`;
+    }
     return `
       <div class="consulta-card ${c.status}">
         <div class="consulta-data">
@@ -977,11 +1451,9 @@ function renderConsultas() {
             <span>${icone('clock')} ${esc(c.horario)}</span>
             <span class="status status-${c.status}">${STATUS[c.status] || esc(c.status)}</span>
           </div>
+          ${tagsConsultaHTML(c)}
         </div>
-        ${podeCancelar ? `
-          <div class="consulta-acoes">
-            <button class="btn btn-perigo btn-sm" data-cancelar="${c.id}">${icone('x')} Cancelar</button>
-          </div>` : ''}
+        ${acoes}
       </div>`;
   }).join('');
 }
@@ -993,33 +1465,36 @@ $('#abas-consultas').addEventListener('click', (e) => {
   renderConsultas();
 });
 
-$('#consultas-list').addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-cancelar]');
-  if (!btn) return;
-  const c = state.consultas.find((x) => x.id === Number(btn.dataset.cancelar));
-  const ok = await confirmar({
-    titulo: 'Cancelar consulta?',
-    texto: `${c.profissional_nome} — ${fmtData(c.data)} às ${c.horario}. O horário ficará livre para outros pacientes.`,
-    botao: 'Sim, cancelar',
-    perigo: true,
-  });
-  if (!ok) return;
-  await alterarStatus(c.id, 'cancelada', 'Consulta cancelada.');
-  carregarConsultas();
+$('#consultas-list').addEventListener('click', (e) => {
+  tratarAcaoConsulta(e, () => state.consultas, () => carregarConsultas().catch(() => {}));
 });
-
-async function alterarStatus(id, status, mensagem) {
-  try {
-    await api(`/consultas/${id}`, { metodo: 'PATCH', corpo: { status } });
-    showToast(mensagem, 'success');
-  } catch (err) {
-    if (!err.silencioso) showToast(err.message, 'error');
-  }
-}
 
 /* ==========================================================
    PROFISSIONAL — AGENDA
 ========================================================== */
+function itemAgendaHTML(c, { mostrarProfissional = false } = {}) {
+  const anos = idade(c.paciente_nascimento);
+  return `
+    <div class="agenda-item ${c.status}">
+      <span class="agenda-hora">${esc(c.horario)}</span>
+      <div class="agenda-paciente">
+        ${avatarHTML({ nome: c.paciente_nome }, 'sm')}
+        <div>
+          ${mostrarProfissional ? `<span class="agenda-prof">${esc(c.profissional_nome)} · ${esc(c.especialidade)}</span>` : ''}
+          <strong>${esc(c.paciente_nome)}</strong>
+          <div class="contato">
+            ${c.paciente_telefone ? `<span>${icone('phone')} ${esc(c.paciente_telefone)}</span>` : ''}
+            ${c.paciente_email ? `<span>${icone('mail')} ${esc(c.paciente_email)}</span>` : ''}
+            ${anos !== null ? `<span>${anos} anos</span>` : ''}
+          </div>
+          ${tagsConsultaHTML(c)}
+        </div>
+      </div>
+      <span class="status status-${c.status}">${STATUS[c.status] || esc(c.status)}</span>
+      ${acoesEquipeHTML(c)}
+    </div>`;
+}
+
 async function carregarAgenda() {
   $('#agenda-nome').textContent = nomeCurto(state.usuario.nome);
   $('#agenda-subtitulo').textContent = `Hoje é ${fmtDataLonga(hojeISO()).toLowerCase()}. Esta é a sua agenda de atendimentos.`;
@@ -1034,6 +1509,8 @@ async function carregarAgenda() {
   $('#ag-stat-hoje').textContent = resumo.hoje;
   $('#ag-stat-proximas').textContent = resumo.proximas;
   $('#ag-stat-concluidas').textContent = resumo.concluidas;
+  $('#ag-stat-faltas').textContent = resumo.faltas;
+  state.agenda = lista;
   renderAgenda(lista);
 }
 
@@ -1061,32 +1538,7 @@ function renderAgenda(lista) {
   container.innerHTML = grupos.map((g) => `
     <div class="agenda-dia">
       <h3>${esc(fmtDataLonga(g.data))} ${g.data === hoje ? '<span class="hoje">Hoje</span>' : ''}</h3>
-      <div class="agenda-itens">
-        ${g.itens.map((c) => {
-    const anos = idade(c.paciente_nascimento);
-    return `
-          <div class="agenda-item ${c.status}">
-            <span class="agenda-hora">${esc(c.horario)}</span>
-            <div class="agenda-paciente">
-              ${avatarHTML({ nome: c.paciente_nome }, 'sm')}
-              <div>
-                <strong>${esc(c.paciente_nome)}</strong>
-                <div class="contato">
-                  ${c.paciente_telefone ? `<span>${icone('phone')} ${esc(c.paciente_telefone)}</span>` : ''}
-                  <span>${icone('mail')} ${esc(c.paciente_email)}</span>
-                  ${anos !== null ? `<span>${anos} anos</span>` : ''}
-                </div>
-              </div>
-            </div>
-            <span class="status status-${c.status}">${STATUS[c.status] || esc(c.status)}</span>
-            ${c.status === 'agendada' ? `
-              <div class="consulta-acoes">
-                <button class="btn btn-sucesso btn-sm" data-concluir="${c.id}">${icone('check')} Concluir</button>
-                <button class="btn btn-perigo btn-sm" data-cancelar-ag="${c.id}" data-info="${esc(`${c.paciente_nome} — ${fmtData(c.data)} às ${c.horario}`)}">${icone('x')} Cancelar</button>
-              </div>` : ''}
-          </div>`;
-  }).join('')}
-      </div>
+      <div class="agenda-itens">${g.itens.map((c) => itemAgendaHTML(c)).join('')}</div>
     </div>`).join('');
 }
 
@@ -1097,34 +1549,176 @@ $('#abas-agenda').addEventListener('click', (e) => {
   carregarAgenda().catch((err) => { if (!err.silencioso) showToast(err.message, 'error'); });
 });
 
-$('#agenda-list').addEventListener('click', async (e) => {
-  const concluir = e.target.closest('[data-concluir]');
-  const cancelar = e.target.closest('[data-cancelar-ag]');
-  if (concluir) {
-    await alterarStatus(Number(concluir.dataset.concluir), 'concluida', 'Consulta marcada como concluída.');
-  } else if (cancelar) {
-    const ok = await confirmar({
-      titulo: 'Cancelar esta consulta?',
-      texto: `${cancelar.dataset.info}. Avise o paciente sobre o cancelamento.`,
-      botao: 'Sim, cancelar',
-      perigo: true,
-    });
-    if (!ok) return;
-    await alterarStatus(Number(cancelar.dataset.cancelarAg), 'cancelada', 'Consulta cancelada.');
-  } else {
-    return;
-  }
-  carregarAgenda().catch((err) => { if (!err.silencioso) showToast(err.message, 'error'); });
+$('#agenda-list').addEventListener('click', (e) => {
+  tratarAcaoConsulta(e, () => state.agenda || [], () => carregarAgenda().catch(() => {}));
 });
 
 /* ==========================================================
-   PROFISSIONAL — PERFIL PÚBLICO
+   EQUIPE — AGENDA GERAL DA CLÍNICA
+========================================================== */
+async function carregarAgendaGeral() {
+  state.diaAgenda = state.diaAgenda || hojeISO();
+  $('#ag-dia').value = state.diaAgenda;
+  $('#ag-dia-titulo').textContent = `${fmtDataLonga(state.diaAgenda)}${state.diaAgenda === hojeISO() ? ' · hoje' : ''}`;
+  $('#agenda-geral-list').innerHTML = carregandoHTML();
+
+  const filtro = state.filtroAgendaProf ? `&profissional_id=${state.filtroAgendaProf}` : '';
+  const [resumo, lista] = await Promise.all([
+    api('/resumo'),
+    api(`/agenda?data=${state.diaAgenda}${filtro}`),
+    state.profissionais.length ? null : carregarProfissionais(),
+  ]);
+  $('#eq-stat-hoje').textContent = resumo.hoje;
+  $('#eq-stat-agendadas').textContent = resumo.agendadas;
+  $('#eq-stat-pacientes').textContent = resumo.pacientes;
+
+  $('#ag-filtro-prof').innerHTML = `<option value="">Todos os profissionais</option>${
+    state.profissionais.map((p) => `<option value="${p.id}" ${String(p.id) === String(state.filtroAgendaProf) ? 'selected' : ''}>${esc(p.nome)} — ${esc(p.especialidade)}</option>`).join('')}`;
+
+  state.agendaGeral = lista;
+  $('#agenda-geral-list').innerHTML = lista.length
+    ? `<div class="agenda-itens">${lista.map((c) => itemAgendaHTML(c, { mostrarProfissional: true })).join('')}</div>`
+    : `<div class="card">${vazioHTML('calendar', 'Nenhuma consulta neste dia', 'Use “Novo agendamento” para marcar uma consulta.')}</div>`;
+}
+
+function mudarDiaAgenda(iso) {
+  state.diaAgenda = iso;
+  carregarAgendaGeral().catch((err) => { if (!err.silencioso) showToast(err.message, 'error'); });
+}
+
+$('#ag-dia-anterior').addEventListener('click', () => {
+  const d = dataDeISO(state.diaAgenda);
+  d.setDate(d.getDate() - 1);
+  mudarDiaAgenda(isoDe(d));
+});
+$('#ag-dia-seguinte').addEventListener('click', () => {
+  const d = dataDeISO(state.diaAgenda);
+  d.setDate(d.getDate() + 1);
+  mudarDiaAgenda(isoDe(d));
+});
+$('#ag-hoje').addEventListener('click', () => mudarDiaAgenda(hojeISO()));
+$('#ag-dia').addEventListener('change', (e) => { if (e.target.value) mudarDiaAgenda(e.target.value); });
+$('#ag-filtro-prof').addEventListener('change', (e) => {
+  state.filtroAgendaProf = e.target.value;
+  mudarDiaAgenda(state.diaAgenda);
+});
+$('#agenda-geral-list').addEventListener('click', (e) => {
+  tratarAcaoConsulta(e, () => state.agendaGeral || [], () => carregarAgendaGeral().catch(() => {}));
+});
+
+/* ==========================================================
+   BLOQUEIOS (folgas, férias, feriados)
+========================================================== */
+function periodoTexto(b) {
+  if (b.data_inicio === b.data_fim) return fmtDataLonga(b.data_inicio);
+  const ini = dataDeISO(b.data_inicio);
+  const fim = dataDeISO(b.data_fim);
+  const mesmoMes = ini.getMonth() === fim.getMonth() && ini.getFullYear() === fim.getFullYear();
+  return mesmoMes
+    ? `${ini.getDate()} a ${fim.getDate()} de ${MESES[fim.getMonth()].toLowerCase()}`
+    : `${fmtData(b.data_inicio)} a ${fmtData(b.data_fim)}`;
+}
+
+async function carregarBloqueios() {
+  const equipe = ehEquipe();
+  $('#bloq-titulo').textContent = equipe ? 'Bloqueios de agenda' : 'Folgas e bloqueios';
+  $('#bloq-subtitulo').textContent = equipe
+    ? 'Feche a agenda de um profissional (férias, congresso) ou da clínica toda (feriados).'
+    : 'Feche sua agenda em férias, congressos ou folgas. Os pacientes não conseguem marcar nesses dias.';
+  $('#bloq-campo-prof').classList.toggle('hidden', !equipe);
+  $('#bloq-inicio').min = hojeISO();
+  $('#bloq-fim').min = hojeISO();
+  $('#bloqueios-list').innerHTML = carregandoHTML();
+
+  if (equipe) {
+    if (!state.profissionais.length) await carregarProfissionais();
+    const atual = $('#bloq-prof').value;
+    $('#bloq-prof').innerHTML = `<option value="">Clínica toda (feriado, recesso)</option>${
+      state.profissionais.map((p) => `<option value="${p.id}">${esc(p.nome)}</option>`).join('')}`;
+    $('#bloq-prof').value = atual;
+  }
+
+  const lista = await api('/bloqueios');
+  state.bloqueios = lista;
+  const meuId = state.profissional?.id;
+  $('#bloqueios-list').innerHTML = lista.length
+    ? lista.map((b) => {
+      const daClinica = !b.profissional_id;
+      const podeRemover = equipe || b.profissional_id === meuId;
+      const dono = daClinica ? 'Clínica toda' : (equipe ? b.profissional_nome : 'Sua agenda');
+      return `
+        <div class="bloqueio-item${daClinica ? ' clinica' : ''}">
+          <span class="bloqueio-icone">${icone('lock')}</span>
+          <div>
+            <strong>${esc(capitalizar(periodoTexto(b)))}</strong>
+            <span>${esc([dono, b.motivo].filter(Boolean).join(' · '))}</span>
+          </div>
+          ${podeRemover
+    ? `<button class="btn btn-fantasma btn-sm" data-remover-bloqueio="${b.id}">${icone('x')} Remover</button>`
+    : '<span class="muted pequeno">Definido pela clínica</span>'}
+        </div>`;
+    }).join('')
+    : `<div class="card">${vazioHTML('lock', 'Nenhum bloqueio programado', 'A agenda está aberta em todos os dias de atendimento.')}</div>`;
+}
+
+$('#bloq-inicio').addEventListener('change', (e) => {
+  $('#bloq-fim').min = e.target.value;
+  if (!$('#bloq-fim').value || $('#bloq-fim').value < e.target.value) $('#bloq-fim').value = e.target.value;
+});
+
+$('#form-bloqueio').addEventListener('submit', (e) => {
+  e.preventDefault();
+  comCarregamento(e.target.querySelector('button[type=submit]'), async () => {
+    const r = await api('/bloqueios', {
+      metodo: 'POST',
+      corpo: {
+        profissional_id: ehEquipe() ? $('#bloq-prof').value || null : undefined,
+        data_inicio: $('#bloq-inicio').value,
+        data_fim: $('#bloq-fim').value || $('#bloq-inicio').value,
+        motivo: $('#bloq-motivo').value.trim(),
+      },
+    });
+    e.target.reset();
+    await carregarBloqueios();
+    if (r.consultas_afetadas > 0) {
+      abrirModal(`
+        <div class="modal-icone perigo">${icone('alert')}</div>
+        <h3 class="modal-titulo">Datas bloqueadas</h3>
+        <p class="modal-texto">Atenção: já existem <strong>${r.consultas_afetadas} consulta(s)</strong> marcada(s) nesse período.
+        Elas <strong>não</strong> foram canceladas — remarque ou cancele pela agenda e avise os pacientes.</p>
+        <div class="modal-acoes"><button class="btn btn-primary" data-fechar>Entendi</button></div>`);
+    } else {
+      showToast('Datas bloqueadas. Ninguém consegue agendar nesse período.', 'success');
+    }
+  });
+});
+
+$('#bloqueios-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-remover-bloqueio]');
+  if (!btn) return;
+  const ok = await confirmar({
+    titulo: 'Remover bloqueio?', texto: 'A agenda volta a aceitar consultas nessas datas.', botao: 'Remover', perigo: true,
+  });
+  if (!ok) return;
+  try {
+    await api(`/bloqueios/${btn.dataset.removerBloqueio}`, { metodo: 'DELETE' });
+    showToast('Bloqueio removido.', 'success');
+    carregarBloqueios();
+  } catch (err) {
+    if (!err.silencioso) showToast(err.message, 'error');
+  }
+});
+
+/* ==========================================================
+   PROFISSIONAL — PERFIL PÚBLICO E HORÁRIOS
 ========================================================== */
 $('#pp-dias').innerHTML = ORDEM_DIAS.map((d) => `
   <label class="dia-check">
     <input type="checkbox" value="${d}"/>
     <span>${DIAS_CURTOS[d]}</span>
   </label>`).join('');
+
+$('#pp-duracao').innerHTML = RegrasAgenda.DURACOES.map((d) => `<option value="${d}">${fmtDuracao(d)}</option>`).join('');
 
 function lerFormPerfil() {
   return {
@@ -1136,17 +1730,37 @@ function lerFormPerfil() {
     sobre: $('#pp-sobre').value.trim(),
     formacao: $('#pp-formacao').value.trim(),
     dias_atendimento: [...$$('#pp-dias input:checked')].map((i) => i.value).sort().join(''),
+    hora_inicio: $('#pp-hora-inicio').value,
+    hora_fim: $('#pp-hora-fim').value,
+    pausa_inicio: $('#pp-pausa-inicio').value,
+    pausa_fim: $('#pp-pausa-fim').value,
+    duracao_consulta: Number($('#pp-duracao').value),
+    valor_consulta: $('#pp-valor').value,
+    aceita_particular: $('#pp-particular').checked,
+    convenios: $('#pp-convenios').value,
   };
 }
 
 function renderPreviewPerfil() {
   const dados = lerFormPerfil();
   if (!/^https?:\/\//i.test(dados.foto)) dados.foto = '';
+  const preview = {
+    ...dados,
+    convenios: RegrasAgenda.listaConvenios(dados.convenios),
+    valor_consulta: dados.valor_consulta === '' ? null : Math.round(Number(dados.valor_consulta) * 100),
+  };
+
+  const erro = RegrasAgenda.validarExpediente(dados);
+  const horarios = erro ? [] : RegrasAgenda.gerarHorarios(dados);
+  $('#pp-qtd-horarios').textContent = erro ? '—' : `${horarios.length} consultas`;
+  $('#pp-horarios-exemplo').textContent = erro || `Horários: ${horarios.join(', ')}`;
+  $('#pp-horarios-exemplo').classList.toggle('erro-texto', !!erro);
+
   $('#pp-preview').innerHTML = `
     <div class="profissionais-grid" style="grid-template-columns:1fr;margin-bottom:1rem">
-      ${cardProfissionalHTML({ ...dados, id: 0, nome: dados.nome || 'Seu nome', especialidade: dados.especialidade || 'Especialidade' })}
+      ${cardProfissionalHTML({ ...preview, id: 0, nome: dados.nome || 'Seu nome', especialidade: dados.especialidade || 'Especialidade' })}
     </div>
-    <div class="card preview-card">${perfilDetalhadoHTML(dados)}</div>`;
+    <div class="card preview-card">${perfilDetalhadoHTML(preview)}</div>`;
 }
 
 function abrirPerfilPublico() {
@@ -1159,6 +1773,14 @@ function abrirPerfilPublico() {
   $('#pp-sobre').value = p.sobre || '';
   $('#pp-formacao').value = p.formacao || '';
   $$('#pp-dias input').forEach((i) => { i.checked = String(p.dias_atendimento || '').includes(i.value); });
+  $('#pp-hora-inicio').value = p.hora_inicio || '08:00';
+  $('#pp-hora-fim').value = p.hora_fim || '18:00';
+  $('#pp-pausa-inicio').value = p.pausa_inicio || '';
+  $('#pp-pausa-fim').value = p.pausa_fim || '';
+  $('#pp-duracao').value = String(p.duracao_consulta || 30);
+  $('#pp-valor').value = p.valor_consulta !== null && p.valor_consulta !== undefined ? (p.valor_consulta / 100).toFixed(2) : '';
+  $('#pp-particular').checked = p.aceita_particular !== false;
+  $('#pp-convenios').value = (p.convenios || []).join('\n');
   renderPreviewPerfil();
 }
 
@@ -1172,6 +1794,11 @@ $('#form-perfil-prof').addEventListener('submit', (e) => {
     showToast('Selecione pelo menos um dia de atendimento.', 'error');
     return;
   }
+  const erro = RegrasAgenda.validarExpediente(dados);
+  if (erro) {
+    showToast(erro, 'error');
+    return;
+  }
   comCarregamento(e.target.querySelector('button[type=submit]'), async () => {
     const atualizado = await api('/profissional/perfil', { metodo: 'PUT', corpo: dados });
     state.profissional = { ...state.profissional, ...atualizado };
@@ -1183,14 +1810,25 @@ $('#form-perfil-prof').addEventListener('submit', (e) => {
 });
 
 /* ==========================================================
-   ADMIN — PROFISSIONAIS
+   ADMIN — EQUIPE (profissionais e recepção)
 ========================================================== */
 async function carregarAdmin() {
   $('#admin-prof-list').innerHTML = carregandoHTML();
-  const [resumo, lista] = await Promise.all([api('/resumo'), api('/admin/profissionais')]);
+  const [resumo, lista, recepcao] = await Promise.all([
+    api('/resumo'), api('/admin/profissionais'), api('/admin/recepcao'),
+  ]);
   $('#adm-stat-prof').textContent = resumo.profissionais;
   $('#adm-stat-pacientes').textContent = resumo.pacientes;
   $('#adm-stat-agendadas').textContent = resumo.agendadas;
+
+  $('#admin-recepcao-list').innerHTML = recepcao.length
+    ? `<table class="tabela"><tbody>${recepcao.map((u) => `
+        <tr>
+          <td><div class="pessoa">${avatarHTML(u)}<div><strong>${esc(u.nome)}</strong><span>${esc(u.email || '')}</span></div></div></td>
+          <td data-rotulo="Telefone">${u.telefone ? `${icone('phone')} ${esc(u.telefone)}` : ''}</td>
+          <td class="direita"><button class="btn btn-fantasma btn-sm" data-remover-recepcao="${u.id}" data-nome="${esc(u.nome)}">${icone('x')} Remover acesso</button></td>
+        </tr>`).join('')}</tbody></table>`
+    : vazioHTML('users', 'Nenhuma conta da recepção', 'Crie uma conta para quem atende o telefone e o balcão.');
 
   if (!lista.length) {
     $('#admin-prof-list').innerHTML = vazioHTML('stethoscope', 'Nenhum profissional cadastrado',
@@ -1202,7 +1840,7 @@ async function carregarAdmin() {
   $('#admin-prof-list').innerHTML = `
     <table class="tabela">
       <thead>
-        <tr><th>Profissional</th><th>Especialidade</th><th>Registro</th><th>Atende</th><th class="direita">Visível para pacientes</th></tr>
+        <tr><th>Profissional</th><th>Especialidade</th><th>Atendimento</th><th>Valor</th><th class="direita">Visível para pacientes</th></tr>
       </thead>
       <tbody>
         ${lista.map((p) => `
@@ -1213,9 +1851,9 @@ async function carregarAdmin() {
                 <div><strong>${esc(p.nome)}</strong><span>${esc(p.email)}</span></div>
               </div>
             </td>
-            <td data-rotulo="Especialidade">${esc(p.especialidade)}</td>
-            <td data-rotulo="Registro">${esc(p.registro || '—')}</td>
-            <td>${diasHTML(p.dias_atendimento)}</td>
+            <td data-rotulo="Especialidade">${esc(p.especialidade)}${p.registro ? `<br/><span class="muted pequeno">${esc(p.registro)}</span>` : ''}</td>
+            <td>${diasHTML(p.dias_atendimento)}<span class="muted pequeno">${esc(expedienteTexto(p))} · ${esc(fmtDuracao(p.duracao_consulta))}</span></td>
+            <td data-rotulo="Valor">${esc(precoResumo(p) || '—')}${p.convenios.length ? `<br/><span class="muted pequeno">${esc(p.convenios.join(', '))}</span>` : ''}</td>
             <td class="direita">
               <label class="interruptor">
                 <span>${p.ativo ? 'Ativo' : 'Inativo'}</span>
@@ -1236,6 +1874,7 @@ $('#admin-prof-list').addEventListener('change', async (e) => {
   try {
     await api(`/admin/profissionais/${input.dataset.ativo}`, { metodo: 'PATCH', corpo: { ativo } });
     showToast(ativo ? 'Profissional ativado.' : 'Profissional desativado — não aparece mais para agendamento.', 'success');
+    state.profissionais = [];
     carregarAdmin();
   } catch (err) {
     input.checked = !ativo;
@@ -1250,80 +1889,132 @@ function gerarSenha() {
   return [...bytes].map((b) => letras[b % letras.length]).join('');
 }
 
-function abrirNovoProfissional() {
+/** Modal de nova conta (profissional ou recepção). */
+function abrirNovaConta(tipo) {
+  const ehProf = tipo === 'profissional';
   abrirModal(`
     <button class="btn-icone modal-fechar" data-fechar aria-label="Fechar">${icone('x')}</button>
-    <h3 class="form-titulo">Novo profissional</h3>
-    <p class="form-sub">O profissional poderá entrar no sistema, ver a agenda e completar o próprio perfil.</p>
-    <form id="form-novo-prof">
+    <h3 class="form-titulo">${ehProf ? 'Novo profissional' : 'Nova conta da recepção'}</h3>
+    <p class="form-sub">${ehProf
+    ? 'O profissional poderá entrar no sistema, ver a agenda e configurar perfil, horários e valores.'
+    : 'A recepção vê a agenda de todos, agenda em nome dos pacientes e bloqueia datas.'}</p>
+    <form id="form-nova-conta">
       <div class="campo">
-        <label for="np-nome">Nome de exibição</label>
-        <div class="campo-input sem-icone"><input id="np-nome" required maxlength="120" placeholder="Ex.: Dra. Ana Lima"/></div>
+        <label for="nc-nome">${ehProf ? 'Nome de exibição' : 'Nome'}</label>
+        <div class="campo-input sem-icone"><input id="nc-nome" required maxlength="120" placeholder="${ehProf ? 'Ex.: Dra. Ana Lima' : 'Ex.: Rita Souza'}"/></div>
       </div>
+      ${ehProf ? `
       <div class="grade-2">
         <div class="campo">
-          <label for="np-especialidade">Especialidade</label>
-          <div class="campo-input sem-icone"><input id="np-especialidade" required maxlength="80" placeholder="Ex.: Cardiologia"/></div>
+          <label for="nc-especialidade">Especialidade</label>
+          <div class="campo-input sem-icone"><input id="nc-especialidade" required maxlength="80" placeholder="Ex.: Cardiologia"/></div>
         </div>
         <div class="campo">
-          <label for="np-registro">Registro <span class="opcional">(CRM, CRP...)</span></label>
-          <div class="campo-input sem-icone"><input id="np-registro" maxlength="40" placeholder="Ex.: CRM 12345-SP"/></div>
+          <label for="nc-registro">Registro <span class="opcional">(CRM, CRP...)</span></label>
+          <div class="campo-input sem-icone"><input id="nc-registro" maxlength="40" placeholder="Ex.: CRM 12345-SP"/></div>
         </div>
-      </div>
+      </div>` : ''}
       <div class="grade-2">
         <div class="campo">
-          <label for="np-email">E-mail de acesso</label>
-          <div class="campo-input sem-icone"><input type="email" id="np-email" required placeholder="nome@clinica.com"/></div>
+          <label for="nc-email">E-mail de acesso</label>
+          <div class="campo-input sem-icone"><input type="email" id="nc-email" required placeholder="nome@clinica.com"/></div>
         </div>
         <div class="campo">
-          <label for="np-telefone">Telefone <span class="opcional">(opcional)</span></label>
-          <div class="campo-input sem-icone"><input type="tel" id="np-telefone" placeholder="(00) 00000-0000"/></div>
+          <label for="nc-telefone">Telefone <span class="opcional">(opcional)</span></label>
+          <div class="campo-input sem-icone"><input type="tel" id="nc-telefone" placeholder="(00) 00000-0000"/></div>
         </div>
       </div>
       <div class="campo">
-        <label for="np-senha">Senha provisória</label>
+        <label for="nc-senha">Senha provisória</label>
         <div class="senha-gerada">
-          <div class="campo-input sem-icone"><input id="np-senha" required minlength="6" value="${gerarSenha()}"/></div>
-          <button type="button" class="btn btn-secundario" id="np-gerar">Gerar outra</button>
+          <div class="campo-input sem-icone"><input id="nc-senha" required minlength="6" value="${gerarSenha()}"/></div>
+          <button type="button" class="btn btn-secundario" id="nc-gerar">Gerar outra</button>
         </div>
       </div>
       <div class="modal-acoes">
         <button type="button" class="btn btn-secundario" data-fechar>Cancelar</button>
-        <button type="submit" class="btn btn-primary">Cadastrar profissional</button>
+        <button type="submit" class="btn btn-primary">Criar conta</button>
       </div>
     </form>`, { largo: true });
 
-  $('#np-gerar').addEventListener('click', () => { $('#np-senha').value = gerarSenha(); });
-  $('#form-novo-prof').addEventListener('submit', (e) => {
+  $('#nc-gerar').addEventListener('click', () => { $('#nc-senha').value = gerarSenha(); });
+  $('#form-nova-conta').addEventListener('submit', (e) => {
     e.preventDefault();
     const dados = {
-      nome: $('#np-nome').value.trim(),
-      especialidade: $('#np-especialidade').value.trim(),
-      registro: $('#np-registro').value.trim(),
-      email: $('#np-email').value.trim(),
-      telefone: $('#np-telefone').value.trim(),
-      senha: $('#np-senha').value,
+      nome: $('#nc-nome').value.trim(),
+      email: $('#nc-email').value.trim(),
+      telefone: $('#nc-telefone').value.trim(),
+      senha: $('#nc-senha').value,
     };
+    if (ehProf) {
+      dados.especialidade = $('#nc-especialidade').value.trim();
+      dados.registro = $('#nc-registro').value.trim();
+    }
     comCarregamento(e.target.querySelector('button[type=submit]'), async () => {
-      await api('/admin/profissionais', { metodo: 'POST', corpo: dados });
+      await api(ehProf ? '/admin/profissionais' : '/admin/recepcao', { metodo: 'POST', corpo: dados });
       abrirModal(`
         <div class="modal-icone sucesso">${icone('check')}</div>
-        <h3 class="modal-titulo">Profissional cadastrado!</h3>
+        <h3 class="modal-titulo">Conta criada!</h3>
         <p class="modal-texto">Envie os dados de acesso abaixo para ${esc(nomeCurto(dados.nome))}. A senha pode ser trocada depois em “Minha conta”.</p>
         <div class="detalhes">
-          <div class="detalhe"><span>Endereço</span><strong>${esc(location.origin)}</strong></div>
+          <div class="detalhe"><span>Endereço</span><strong>${esc(location.origin + location.pathname)}</strong></div>
           <div class="detalhe"><span>E-mail</span><strong>${esc(dados.email.toLowerCase())}</strong></div>
           <div class="detalhe"><span>Senha provisória</span><strong>${esc(dados.senha)}</strong></div>
         </div>
         <div class="modal-acoes"><button class="btn btn-primary" data-fechar>Pronto</button></div>`);
+      state.profissionais = [];
       carregarAdmin();
     });
   });
 }
 
-$('#btn-novo-prof').addEventListener('click', abrirNovoProfissional);
+$('#btn-novo-prof').addEventListener('click', () => abrirNovaConta('profissional'));
+$('#btn-nova-recepcao').addEventListener('click', () => abrirNovaConta('recepcao'));
 $('#admin-prof-list').addEventListener('click', (e) => {
-  if (e.target.closest('[data-novo-prof]')) abrirNovoProfissional();
+  if (e.target.closest('[data-novo-prof]')) abrirNovaConta('profissional');
+});
+$('#admin-recepcao-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-remover-recepcao]');
+  if (!btn) return;
+  const ok = await confirmar({
+    titulo: 'Remover acesso?',
+    texto: `${btn.dataset.nome} não vai mais conseguir entrar no sistema.`,
+    botao: 'Remover acesso',
+    perigo: true,
+  });
+  if (!ok) return;
+  try {
+    await api(`/admin/recepcao/${btn.dataset.removerRecepcao}`, { metodo: 'DELETE' });
+    showToast('Acesso removido.', 'success');
+    carregarAdmin();
+  } catch (err) {
+    if (!err.silencioso) showToast(err.message, 'error');
+  }
+});
+
+/* ==========================================================
+   ADMIN — CONFIGURAÇÕES
+========================================================== */
+async function preencherConfiguracoes() {
+  state.config = await api('/configuracoes');
+  $('#cfg-limite').value = state.config.limite_consultas_futuras;
+  $('#cfg-prazo').value = state.config.prazo_cancelamento_horas;
+  $('#cfg-antecedencia').value = state.config.antecedencia_maxima_dias;
+}
+
+$('#form-config').addEventListener('submit', (e) => {
+  e.preventDefault();
+  comCarregamento(e.target.querySelector('button[type=submit]'), async () => {
+    state.config = await api('/admin/configuracoes', {
+      metodo: 'PUT',
+      corpo: {
+        limite_consultas_futuras: Number($('#cfg-limite').value),
+        prazo_cancelamento_horas: Number($('#cfg-prazo').value),
+        antecedencia_maxima_dias: Number($('#cfg-antecedencia').value),
+      },
+    });
+    showToast('Configurações salvas.', 'success');
+  });
 });
 
 /* ==========================================================

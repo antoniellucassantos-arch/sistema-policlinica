@@ -7,6 +7,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const { db, inserir, agoraISO } = require('./db');
 const { carregarUsuario, hashSenha } = require('./auth');
+const { iniciarLembretes } = require('./lembretes');
 const { ErroHttp, emailValido } = require('./util');
 
 const app = express();
@@ -24,12 +25,15 @@ api.use('/auth', require('./rotas/auth'));
 api.use('/admin', require('./rotas/admin'));
 api.use(require('./rotas/profissionais'));
 api.use(require('./rotas/consultas'));
+api.use(require('./rotas/equipe'));
 api.use(() => {
   throw new ErroHttp(404, 'Rota não encontrada.');
 });
 app.use('/api', api);
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
+// Regras de agenda usadas também pelo navegador (modo demonstração)
+app.use('/shared', express.static(path.join(__dirname, '..', 'shared')));
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
@@ -72,6 +76,7 @@ async function garantirAdmin() {
 async function iniciar() {
   await db.migrate.latest();
   await garantirAdmin();
+  iniciarLembretes();
   app.listen(PORTA, () => {
     console.log(`MedAgenda rodando em http://localhost:${PORTA}`);
   });

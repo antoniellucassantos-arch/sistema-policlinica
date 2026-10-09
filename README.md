@@ -11,12 +11,20 @@ basta escolher no arquivo `.env`.
 
 | Perfil | O que pode fazer |
 | --- | --- |
-| **Paciente** | Criar conta, ver o perfil completo dos profissionais, agendar (profissional → data → horário), ver e cancelar consultas, editar seus dados e trocar a senha |
-| **Profissional** | Ver a agenda (hoje, próximas, anteriores), marcar consultas como concluídas ou canceladas, editar o **perfil público** (foto, especialidade, registro, apresentação, formação e dias de atendimento) |
-| **Administrador** | Cadastrar profissionais (com login e senha provisória), ativar/desativar quem aparece para agendamento e ver números gerais |
+| **Paciente** | Criar conta, ver o perfil completo dos profissionais (horários, valores e convênios), agendar escolhendo motivo e forma de pagamento, **remarcar** e cancelar (respeitando o prazo mínimo), editar seus dados e trocar a senha |
+| **Profissional** | Ver a agenda (hoje, próximas, anteriores), marcar consultas como **concluída**, **faltou** ou cancelada, **remarcar**, configurar o **próprio expediente** (dias, horário, pausa e duração da consulta), valor particular e **convênios**, e **bloquear datas** (férias, folgas) |
+| **Recepção** | Ver a **agenda geral da clínica** por dia e por profissional, **agendar em nome do paciente** (inclusive cadastrando pacientes só com telefone), remarcar, registrar faltas e bloquear datas |
+| **Administrador** | Tudo o que a recepção faz, mais: cadastrar profissionais e contas da recepção, ativar/desativar profissionais e ajustar as **configurações** (limite de consultas por paciente, prazo para cancelar e antecedência máxima) |
 
-Todos os perfis têm **"Esqueci minha senha"** na tela de login: o sistema envia por e-mail um link
-(válido por 1 hora, de uso único) para criar uma nova senha.
+Também tem:
+
+- **"Esqueci minha senha"** na tela de login: o sistema envia por e-mail um link (válido por 1 hora,
+  de uso único) para criar uma nova senha.
+- **Lembrete por e-mail** na véspera da consulta (a partir das 9h, configurável).
+- **Limite de consultas futuras por paciente** (padrão 3) para ninguém "segurar" horários.
+- **Prazo mínimo para o paciente cancelar ou remarcar** pelo site (padrão 24h antes). Depois disso,
+  só pela clínica.
+- Os horários nunca se sobrepõem, mesmo quando o profissional muda a duração da consulta.
 
 ## Demonstração no GitHub Pages
 
@@ -25,11 +33,13 @@ em **Settings → Pages**, escolha *Deploy from a branch*, a branch com este có
 `/ (root)`. O endereço `https://<usuario>.github.io/<repositorio>/` abre o sistema em
 **modo demonstração**:
 
-- Tudo funciona (agendar, perfis, agenda do médico, admin, esqueci minha senha), mas os dados
+- Tudo funciona (agendar, remarcar, perfis, agenda do médico, agenda da recepção, bloqueios,
+  configurações, esqueci minha senha), mas os dados
   ficam salvos **só no navegador de quem acessa** (cada pessoa vê a sua própria cópia).
-- A tela de login mostra botões para entrar como paciente, médica ou administrador
+- A tela de login mostra botões para entrar como paciente, médica, recepção ou administrador
   (senha `demo123`).
-- No "esqueci minha senha", o link aparece na tela em vez de ir por e-mail.
+- No "esqueci minha senha", o link aparece na tela em vez de ir por e-mail, e os lembretes
+  por e-mail não são enviados.
 - O botão "Reiniciar dados" (canto inferior) volta tudo ao estado inicial.
 
 O modo demonstração liga sozinho em endereços `*.github.io`, ao abrir o `public/index.html`
@@ -58,7 +68,8 @@ profissionais.
 npm run seed:demo
 ```
 
-Cria 4 profissionais e o paciente `paciente@demo.com`, todos com a senha `demo123`
+Cria 4 profissionais (com horários, valores e convênios diferentes), a recepcionista
+`recepcao@demo.com` e o paciente `paciente@demo.com`, todos com a senha `demo123`
 (os profissionais usam os e-mails `ana.lima@demo.com`, `carlos.souza@demo.com`,
 `juliana.martins@demo.com` e `rafael.oliveira@demo.com`). Use só para testes.
 
@@ -86,17 +97,23 @@ sozinhas. Para criar as tabelas sem iniciar o servidor, rode `npm run migrate`.
 
 | Tabela | Conteúdo |
 | --- | --- |
-| `usuarios` | Pacientes, profissionais e administradores (senha guardada com bcrypt) |
-| `profissionais` | Perfil público de cada profissional, ligado a um usuário |
-| `consultas` | Agendamentos (`agendada`, `concluida` ou `cancelada`). Um índice único impede dois pacientes no mesmo horário |
+| `usuarios` | Pacientes, profissionais, recepção e administradores (senha guardada com bcrypt). O e-mail é opcional para pacientes cadastrados pela recepção |
+| `profissionais` | Perfil público, expediente, duração da consulta, valor e convênios de cada profissional |
+| `consultas` | Agendamentos (`agendada`, `concluida`, `faltou` ou `cancelada`) com motivo, observação, forma de pagamento e controle do lembrete |
 | `redefinicoes_senha` | Pedidos de "esqueci minha senha" (só o hash do código é guardado) |
+| `bloqueios` | Datas em que a agenda fica fechada (de um profissional ou da clínica toda) |
+| `configuracoes` | Regras ajustáveis pelo administrador (limite, prazo, antecedência) |
 
 A estrutura completa está em `db/migrations/`.
 
-## E-mail de recuperação de senha
+## E-mails (recuperação de senha e lembretes)
 
 Preencha os campos `SMTP_*` do `.env` com os dados do seu provedor de e-mail (Gmail, Outlook,
-Brevo, Amazon SES etc.) e ajuste `APP_URL` com o endereço público do site, que é usado no link.
+Brevo, Amazon SES etc.) e ajuste `APP_URL` com o endereço público do site, que é usado nos links.
+
+Os lembretes saem na véspera da consulta, a partir de `HORA_LEMBRETE` (padrão 9h), para pacientes
+que têm e-mail. Para desligar, use `LEMBRETES=false`. Lembrete por WhatsApp precisa de um serviço
+pago (como a API oficial do WhatsApp Business) e não está incluído.
 
 Sem SMTP configurado, o e-mail **aparece no terminal do servidor**, o que é útil para testes.
 
@@ -126,7 +143,9 @@ apagadas e recriadas.
 public/            Front-end (HTML, CSS e JavaScript puros)
   demo.js          Modo demonstração (simula a API no navegador)
 server/            Servidor Express
-  rotas/           auth (login, cadastro, senha), profissionais, consultas e admin
+  rotas/           auth, profissionais, consultas, equipe (pacientes e bloqueios) e admin
+  lembretes.js     Envio dos lembretes da véspera
+shared/agenda.js   Regras de horário usadas pelo servidor e pela demonstração
 db/migrations/     Estrutura do banco (criação das tabelas)
 db/seeds/          Dados de demonstração
 test/              Testes automáticos da API

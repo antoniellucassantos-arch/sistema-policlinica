@@ -6,6 +6,7 @@ const {
   hashSenha, conferirSenha, iniciarSessao, encerrarSessao, exigir, usuarioPublico,
 } = require('../auth');
 const correio = require('../email');
+const { consultaProfissionais, perfilPublico } = require('../profissionais');
 const { limitar } = require('../limite');
 const {
   ErroHttp, texto, emailValido, validarSenha, dataValida,
@@ -37,8 +38,8 @@ function lerNascimento(valor) {
 async function respostaUsuario(usuario) {
   const resposta = { usuario: usuarioPublico(usuario), profissional: null };
   if (usuario.tipo === 'profissional') {
-    resposta.profissional = await db('profissionais').where({ usuario_id: usuario.id }).first() || null;
-    if (resposta.profissional) resposta.profissional.ativo = !!resposta.profissional.ativo;
+    const p = await consultaProfissionais().where('p.usuario_id', usuario.id).first();
+    resposta.profissional = p ? perfilPublico(p) : null;
   }
   return resposta;
 }

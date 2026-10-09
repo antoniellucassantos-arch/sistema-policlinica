@@ -11,12 +11,6 @@ class ErroHttp extends Error {
 
 const FUSO = process.env.FUSO_HORARIO || 'America/Sao_Paulo';
 
-const HORARIOS = [
-  '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
-  '11:00', '11:30', '14:00', '14:30', '15:00', '15:30',
-  '16:00', '16:30', '17:00', '17:30',
-];
-
 /** Data (AAAA-MM-DD) e hora (HH:MM) atuais no fuso da clínica. */
 function agoraNoFuso() {
   const partes = Object.fromEntries(
@@ -86,6 +80,16 @@ function validarFoto(url) {
   return u.toString();
 }
 
+/** Valor em reais (número ou texto "150,00") → centavos, ou null se vazio. */
+function lerValor(valor) {
+  if (valor === null || valor === undefined || valor === '') return null;
+  const numero = typeof valor === 'number' ? valor : Number(String(valor).replace(/\s|R\$/g, '').replace(',', '.'));
+  if (!Number.isFinite(numero) || numero < 0 || numero > 100000) {
+    throw new ErroHttp(400, 'Valor da consulta inválido.');
+  }
+  return Math.round(numero * 100);
+}
+
 function validarDias(dias) {
   if (typeof dias !== 'string' || !/^[0-6]{1,7}$/.test(dias)) {
     throw new ErroHttp(400, 'Selecione pelo menos um dia de atendimento.');
@@ -95,7 +99,6 @@ function validarDias(dias) {
 
 module.exports = {
   ErroHttp,
-  HORARIOS,
   agoraNoFuso,
   dataValida,
   diaDaSemana,
@@ -105,4 +108,5 @@ module.exports = {
   validarSenha,
   validarFoto,
   validarDias,
+  lerValor,
 };
