@@ -18,6 +18,24 @@ basta escolher no arquivo `.env`.
 Todos os perfis têm **"Esqueci minha senha"** na tela de login: o sistema envia por e-mail um link
 (válido por 1 hora, de uso único) para criar uma nova senha.
 
+## Demonstração no GitHub Pages
+
+Para só **ver e mostrar** o sistema, sem servidor, dá para publicar no GitHub Pages:
+em **Settings → Pages**, escolha *Deploy from a branch*, a branch com este código e a pasta
+`/ (root)`. O endereço `https://<usuario>.github.io/<repositorio>/` abre o sistema em
+**modo demonstração**:
+
+- Tudo funciona (agendar, perfis, agenda do médico, admin, esqueci minha senha), mas os dados
+  ficam salvos **só no navegador de quem acessa** (cada pessoa vê a sua própria cópia).
+- A tela de login mostra botões para entrar como paciente, médica ou administrador
+  (senha `demo123`).
+- No "esqueci minha senha", o link aparece na tela em vez de ir por e-mail.
+- O botão "Reiniciar dados" (canto inferior) volta tudo ao estado inicial.
+
+O modo demonstração liga sozinho em endereços `*.github.io`, ao abrir o `public/index.html`
+direto do computador ou com `?demo` no endereço. Com o servidor rodando (`npm start`),
+o sistema usa o banco de dados de verdade.
+
 ## Como rodar
 
 Requisitos: [Node.js](https://nodejs.org) 18 ou mais recente.
@@ -106,6 +124,7 @@ apagadas e recriadas.
 
 ```
 public/            Front-end (HTML, CSS e JavaScript puros)
+  demo.js          Modo demonstração (simula a API no navegador)
 server/            Servidor Express
   rotas/           auth (login, cadastro, senha), profissionais, consultas e admin
 db/migrations/     Estrutura do banco (criação das tabelas)

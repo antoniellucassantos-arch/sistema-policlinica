@@ -121,6 +121,16 @@
         </div>
         <button type="submit" class="btn btn-primary btn-full btn-lg">Entrar</button>
         <p class="auth-troca">Ainda não tem conta? <a href="#" class="link" data-auth="cadastro">Criar conta</a></p>
+
+        <div id="demo-dica" class="demo-dica hidden">
+          <strong>Modo demonstração</strong>
+          <span>Entre com uma conta de teste (senha <code>demo123</code>):</span>
+          <div class="demo-contas">
+            <button type="button" class="chip" data-email="paciente@demo.com">Paciente</button>
+            <button type="button" class="chip" data-email="ana.lima@demo.com">Médica</button>
+            <button type="button" class="chip" data-email="admin@demo.com">Administrador</button>
+          </div>
+        </div>
       </form>
 
       <!-- CADASTRO -->
@@ -198,6 +208,11 @@
           <h2>Verifique seu e-mail</h2>
           <p class="auth-sub">Se existir uma conta com <strong id="esq-email-enviado"></strong>, você receberá em instantes um link para criar uma nova senha. O link vale por 1 hora.</p>
           <p class="muted pequeno">Não chegou? Confira a caixa de spam ou <a href="#" class="link" id="esq-reenviar">tente novamente</a>.</p>
+          <p id="esq-link-demo" class="demo-dica hidden">
+            <strong>Modo demonstração</strong>
+            <span>Aqui não é enviado e-mail. Use o link que chegaria na caixa de entrada:</span>
+            <a href="#" class="btn btn-primary btn-full">Abrir link de redefinição</a>
+          </p>
         </div>
       </form>
 
@@ -562,6 +577,12 @@
   </main>
 </div>
 
+<!-- FAIXA DO MODO DEMONSTRAÇÃO -->
+<div id="demo-faixa" class="demo-faixa hidden">
+  <span><strong>Demonstração</strong> · os dados ficam só neste navegador</span>
+  <button type="button" id="demo-reiniciar">Reiniciar dados</button>
+</div>
+
 <!-- TOAST -->
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
@@ -570,6 +591,7 @@
   <div class="modal-box" id="modal-box"></div>
 </div>
 
+<script src="demo.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

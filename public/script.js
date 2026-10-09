@@ -66,7 +66,27 @@ function icone(nome) {
   return `<svg class="ic"><use href="#i-${nome}"/></svg>`;
 }
 
-async function api(caminho, { metodo = 'GET', corpo } = {}) {
+async function api(caminho, opcoes = {}) {
+  if (window.MODO_DEMO) return apiModoDemo(caminho, opcoes);
+  return apiServidor(caminho, opcoes);
+}
+
+/** Modo demonstração (GitHub Pages): a "API" roda no próprio navegador, em demo.js. */
+async function apiModoDemo(caminho, opcoes) {
+  try {
+    return await window.apiDemo(caminho, opcoes);
+  } catch (err) {
+    const erro = new Error(err.message || 'Algo deu errado. Tente novamente.');
+    erro.status = err.status || 500;
+    if (erro.status === 401 && state.usuario) {
+      sessaoExpirada();
+      erro.silencioso = true;
+    }
+    throw erro;
+  }
+}
+
+async function apiServidor(caminho, { metodo = 'GET', corpo } = {}) {
   let resp;
   try {
     resp = await fetch(`/api${caminho}`, {
@@ -484,8 +504,11 @@ $('#form-esqueci').addEventListener('submit', (e) => {
   e.preventDefault();
   const email = $('#esq-email').value.trim();
   comCarregamento(e.target.querySelector('button[type=submit]'), async () => {
-    await api('/auth/esqueci-senha', { metodo: 'POST', corpo: { email } });
+    const r = await api('/auth/esqueci-senha', { metodo: 'POST', corpo: { email } });
     $('#esq-email-enviado').textContent = email;
+    // Na demonstração não há e-mail: o link aparece na própria tela.
+    $('#esq-link-demo').classList.toggle('hidden', !r.link_demo);
+    if (r.link_demo) $('#esq-link-demo a').href = r.link_demo;
     $('#esqueci-pedido').classList.add('hidden');
     $('#esqueci-enviado').classList.remove('hidden');
   });
@@ -1358,6 +1381,28 @@ $('#form-senha').addEventListener('submit', (e) => {
 /* ==========================================================
    INÍCIO
 ========================================================== */
+/* ---------- Modo demonstração ---------- */
+if (window.MODO_DEMO) {
+  $('#demo-dica').classList.remove('hidden');
+  $('#demo-faixa').classList.remove('hidden');
+  $('#demo-dica').addEventListener('click', (e) => {
+    const conta = e.target.closest('[data-email]');
+    if (!conta) return;
+    $('#log-email').value = conta.dataset.email;
+    $('#log-senha').value = 'demo123';
+    $('#form-login').requestSubmit();
+  });
+  $('#demo-reiniciar').addEventListener('click', async () => {
+    const ok = await confirmar({
+      titulo: 'Reiniciar a demonstração?',
+      texto: 'Todas as consultas, contas e alterações feitas neste navegador serão apagadas.',
+      botao: 'Reiniciar',
+      perigo: true,
+    });
+    if (ok) window.reiniciarDemo();
+  });
+}
+
 (async function iniciar() {
   aprimorarCamposSenha();
   atualizarResumo();
