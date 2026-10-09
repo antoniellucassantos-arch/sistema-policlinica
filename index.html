@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MedAgenda — Agendamento de Consultas</title>
+<link rel="stylesheet" href="style.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ============================= -->
+<!-- TELA DE AUTENTICAÇÃO          -->
+<!-- ============================= -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="logo-icon">✚</div>
+      <h1>MedAgenda</h1>
+      <p>Seu cuidado, agendado com facilidade</p>
+    </div>
+
+    <!-- CADASTRO -->
+    <form id="form-cadastro" class="auth-form active">
+      <h2>Criar conta</h2>
+      <div class="input-group">
+        <label>Nome completo</label>
+        <input type="text" id="cad-nome" required placeholder="Seu nome"/>
+      </div>
+      <div class="input-group">
+        <label>E-mail</label>
+        <input type="email" id="cad-email" required placeholder="voce@email.com"/>
+      </div>
+      <div class="input-row">
+        <div class="input-group">
+          <label>Telefone</label>
+          <input type="tel" id="cad-telefone" required placeholder="(00) 00000-0000"/>
+        </div>
+        <div class="input-group">
+          <label>Data de nascimento</label>
+          <input type="date" id="cad-nascimento" required/>
+        </div>
+      </div>
+      <div class="input-group">
+        <label>Senha</label>
+        <input type="password" id="cad-senha" required minlength="6" placeholder="Mínimo 6 caracteres"/>
+      </div>
+      <div class="input-group">
+        <label>Confirmar senha</label>
+        <input type="password" id="cad-senha2" required minlength="6" placeholder="Repita a senha"/>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Criar conta</button>
+      <p class="auth-switch">
+        Já tenho uma conta
+        <a href="#" data-switch="login">Entrar</a>
+      </p>
+    </form>
+
+    <!-- LOGIN -->
+    <form id="form-login" class="auth-form">
+      <h2>Entrar</h2>
+      <div class="input-group">
+        <label>E-mail</label>
+        <input type="email" id="log-email" required placeholder="voce@email.com"/>
+      </div>
+      <div class="input-group">
+        <label>Senha</label>
+        <input type="password" id="log-senha" required placeholder="Sua senha"/>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Entrar</button>
+      <p class="auth-switch">
+        Não tem conta?
+        <a href="#" data-switch="cadastro">Criar agora</a>
+      </p>
+    </form>
+  </div>
+</div>
+
+<!-- ============================= -->
+<!-- APP PRINCIPAL                 -->
+<!-- ============================= -->
+<div id="app-screen" class="app-screen hidden">
+
+  <!-- NAVBAR -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <div class="logo-icon small">✚</div>
+      <span>MedAgenda</span>
+    </div>
+    <nav class="nav-links" id="nav-links">
+      <a href="#" data-page="home" class="nav-link active">Início</a>
+      <a href="#" data-page="agendar" class="nav-link">Agendar consulta</a>
+      <a href="#" data-page="minhas" class="nav-link">Minhas consultas</a>
+      <a href="#" data-page="perfil" class="nav-link">Perfil</a>
+      <a href="#" id="btn-logout" class="nav-link logout">Sair</a>
+    </nav>
+    <button class="menu-toggle" id="menu-toggle">☰</button>
+  </header>
+
+  <main class="container">
+
+    <!-- ================= HOME ================= -->
+    <section id="page-home" class="page active">
+      <div class="hero">
+        <h1>Olá, <span id="user-name">paciente</span> 👋</h1>
+        <p>Agende sua consulta em poucos cliques, com profissionais qualificados.</p>
+        <button class="btn btn-primary" data-goto="agendar">Agendar agora</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">👨‍⚕️</div>
+          <h3 id="stat-prof">0</h3>
+          <p>Profissionais disponíveis</p>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📅</div>
+          <h3 id="stat-consultas">0</h3>
+          <p>Suas consultas</p>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⏰</div>
+          <h3>8h - 18h</h3>
+          <p>Horário de atendimento</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= AGENDAR ================= -->
+    <section id="page-agendar" class="page">
+      <h2 class="page-title">Agendar consulta</h2>
+
+      <!-- Passo 1: Profissional -->
+      <div class="step">
+        <div class="step-header"><span class="step-number">1</span> Escolha o profissional</div>
+        <div id="profissionais-list" class="profissionais-grid"></div>
+      </div>
+
+      <!-- Passo 2: Data -->
+      <div class="step">
+        <div class="step-header"><span class="step-number">2</span> Escolha a data</div>
+        <div class="calendar">
+          <div class="calendar-header">
+            <button id="prev-month" class="cal-btn">‹</button>
+            <span id="cal-title">Mês</span>
+            <button id="next-month" class="cal-btn">›</button>
+          </div>
+          <div class="calendar-weekdays">
+            <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+          </div>
+          <div id="calendar-days" class="calendar-days"></div>
+        </div>
+      </div>
+
+      <!-- Passo 3: Horário -->
+      <div class="step">
+        <div class="step-header"><span class="step-number">3</span> Escolha o horário</div>
+        <div id="horarios-container" class="horarios-grid">
+          <p class="muted">Selecione um profissional e uma data para ver os horários.</p>
+        </div>
+      </div>
+
+      <div class="step actions">
+        <button id="btn-agendar" class="btn btn-primary btn-large" disabled>
+          Agendar consulta
+        </button>
+      </div>
+    </section>
+
+    <!-- ================= MINHAS CONSULTAS ================= -->
+    <section id="page-minhas" class="page">
+      <h2 class="page-title">Minhas consultas</h2>
+      <div id="consultas-list" class="consultas-list"></div>
+    </section>
+
+    <!-- ================= PERFIL ================= -->
+    <section id="page-perfil" class="page">
+      <h2 class="page-title">Meu perfil</h2>
+      <div class="perfil-card">
+        <div class="perfil-avatar" id="perfil-avatar">U</div>
+        <div class="perfil-info">
+          <div class="info-item"><span>Nome</span><strong id="perfil-nome">—</strong></div>
+          <div class="info-item"><span>E-mail</span><strong id="perfil-email">—</strong></div>
+          <div class="info-item"><span>Telefone</span><strong id="perfil-telefone">—</strong></div>
+          <div class="info-item"><span>Data de nascimento</span><strong id="perfil-nascimento">—</strong></div>
+          <div class="info-item"><span>Cadastro</span><strong id="perfil-cadastro">—</strong></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast"></div>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-icon">✓</div>
+    <h3 id="modal-title">Consulta agendada!</h3>
+    <div id="modal-content"></div>
+    <button id="modal-close" class="btn btn-primary btn-full">Fechar</button>
+  </div>
+</div>
+
+<!-- ================= SUPABASE ================= -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="script.js"></script>
+</body>
+</html>
