@@ -649,20 +649,24 @@ a{ color:inherit; }
 /* ================================
    TOAST
 ================================ */
+/* left/right + margin auto centraliza sem encolher: com left:50% o aviso
+   ficava com metade da tela de largura e as mensagens longas quebravam demais. */
 .toast{
-  position:fixed; bottom:1.5rem; left:50%; z-index:3000;
-  transform:translate(-50%, 150%); opacity:0;
-  display:flex; align-items:center; gap:.6rem;
-  background:var(--ink); color:#fff; padding:.85rem 1.2rem;
-  border-radius:12px; font-size:.9rem; font-weight:500;
-  box-shadow:var(--shadow-lg); max-width:calc(100% - 2rem);
+  position:fixed; bottom:1.5rem; left:1rem; right:1rem; z-index:3000;
+  width:fit-content; max-width:520px; margin:0 auto;
+  transform:translateY(150%); opacity:0;
+  display:flex; align-items:flex-start; gap:.7rem;
+  background:var(--ink); color:#fff; padding:.9rem 1.15rem;
+  border-radius:14px; font-size:.92rem; font-weight:500; line-height:1.45;
+  box-shadow:var(--shadow-lg);
   transition:transform .35s cubic-bezier(.2,.9,.3,1.2), opacity .25s;
 }
-.toast.show{ transform:translate(-50%, 0); opacity:1; }
-.toast .ic{ width:18px; height:18px; }
-.toast.success .ic{ color:#6ee7b7; }
-.toast.error .ic{ color:#fca5a5; }
-.toast.info .ic{ color:var(--primary-200); }
+.toast.show{ transform:translateY(0); opacity:1; }
+.toast .ic{ width:26px; height:26px; padding:4px; border-radius:50%; margin-top:-.1rem; }
+.toast.success .ic{ color:#6ee7b7; background:rgba(110,231,183,.14); }
+.toast.error{ box-shadow:inset 4px 0 0 #f87171, var(--shadow-lg); }
+.toast.error .ic{ color:#fca5a5; background:rgba(248,113,113,.16); }
+.toast.info .ic{ color:var(--primary-200); background:rgba(153,246,228,.12); }
 
 /* ================================
    MODAL
@@ -685,8 +689,8 @@ a{ color:inherit; }
   display:flex; align-items:center; justify-content:center;
 }
 .modal-icone .ic{ width:28px; height:28px; }
-.modal-icone.sucesso{ background:var(--success-50); color:var(--success); }
-.modal-icone.perigo{ background:var(--danger-50); color:var(--danger); }
+.modal-icone.sucesso{ background:var(--success-50); color:var(--success); box-shadow:0 0 0 8px rgba(5,150,105,.06); }
+.modal-icone.perigo{ background:var(--danger-50); color:var(--danger); box-shadow:0 0 0 8px rgba(220,38,38,.06); }
 .modal-titulo{ text-align:center; font-size:1.25rem; margin-bottom:.4rem; }
 .modal-texto{ text-align:center; color:var(--muted); margin-bottom:1.3rem; }
 .modal-box h3.form-titulo{ font-size:1.2rem; margin-bottom:.3rem; }
